@@ -1,0 +1,49 @@
+name: 我的排班
+
+description: 排班日历小组件。休息按大小休自动排（周一固定休，双休周再休周二；上次双休是 11 月 9、10 号）；坐班、拍摄在设置里按日期号填写，没填的工作日默认坐班
+
+author: iBL3ND
+
+icon: https://iili.io/nmvgG7R.webp
+
+env_schema:
+
+  SHIFT_ZUOBAN:
+
+    name: 坐班
+
+    description: 填本月坐班的日期号，逗号分隔，如：3,4,5。不填的工作日默认坐班
+
+    default_value: ''
+
+  SHIFT_PAISHE:
+
+    name: 拍摄
+
+    description: 填本月拍摄的日期号，逗号分隔，如：6,13,20
+
+    default_value: ''
+
+  SHIFT_XIU:
+
+    name: 休息
+
+    description: 休息自动排，不用填（周一固定休；双休周再休周二，上次双休是 11 月 9、10 号）。这里只填需要额外休息的日期，如调休、节假日
+
+    default_value: ''
+
+scriptings:
+
+- generic:
+
+    name: shift-widget
+
+    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/Sched-Widget-pin.js
+
+    timeout: 30
+
+widgets:
+
+- name: shift-widget
+
+  script_name: shift-widget
