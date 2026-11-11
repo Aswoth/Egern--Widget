@@ -36,7 +36,7 @@ scriptings:
 
 - generic:
 
-    name: shift-widget
+    name: 牛马表
 
     script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/Sched-Widget-pin.js
 
@@ -46,4 +46,4 @@ widgets:
 
 - name: 牛马表
 
-  script_name: shift-widget
+  script_name: 牛马表
