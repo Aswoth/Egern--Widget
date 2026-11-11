@@ -1,4 +1,4 @@
-name: 我的排班
+name: 牛马表
 
 description: 排班日历小组件。休息按大小休自动排（周一固定休，双休周再休周二；上次双休是 11 月 9、10 号）；坐班、拍摄在设置里按日期号填写，没填的工作日默认坐班
 
@@ -44,6 +44,6 @@ scriptings:
 
 widgets:
 
-- name: shift-widget
+- name: 牛马表
 
   script_name: shift-widget

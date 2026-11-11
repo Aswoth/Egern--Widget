@@ -1,5 +1,5 @@
 /**
- * 🗓️ 我的排班小组件（改版：坐班 / 拍摄 / 休息）
+ * 🗓️ 牛马表小组件（改版：坐班 / 拍摄 / 休息）
  *
  * 三种状态：坐班 / 拍摄 / 休息。
  *   休息：自动按大小休排，不用填——
@@ -189,7 +189,7 @@ async function handleWidget(ctx) {
       direction: 'row',
       alignItems: 'center',
       children: [
-        { type: 'text', text: '我的排班', font: { size: titleSize, weight: 'bold' }, textColor: textMain },
+        { type: 'text', text: '牛马表', font: { size: titleSize, weight: 'bold' }, textColor: textMain },
         { type: 'spacer' },
         { type: 'text', text: `今日 ${c1} · 明日 ${c2}`, font: { size: titleSize - 3, weight: 'bold' }, textColor: textMain },
         { type: 'spacer' },
