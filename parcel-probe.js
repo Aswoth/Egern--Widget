@@ -29,7 +29,7 @@
  *   列表接口 mtop.cainiao.lpc.packageservice.queryPdsPackageDataList
  */
 
-const PROBE_VERSION = 'v5';
+const PROBE_VERSION = 'v6';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -266,7 +266,7 @@ async function onResponse(ctx) {
   try {
     const data = await ctx.response.json();
     if (data && typeof data === 'object') {
-      const d = data.data || {};
+      const d = mtopData(data) || {};
       /* 记体结构：这个接口的 data 里都有哪些字段，列表到底叫什么 */
       if (d && typeof d === 'object') {
         const shapes = loadJSON(ctx, BODYSHAPE_KEY) || {};
@@ -303,13 +303,27 @@ function pickStr(o) {
   }
   return '';
 }
+/* 原 App mtop.ts 的 mtopData：响应可能是 data.data 双层包 */
+function mtopData(j) {
+  const d = j && j.data;
+  if (d && typeof d === 'object' && d.data !== undefined) return d.data;
+  return d || null;
+}
+
 function trimPackage(p) {
   if (!p || typeof p !== 'object') return null;
   const st = p.packageStation || {};
   const feat = p.feature || {};
   const items = Array.isArray(p.packageItem) ? p.packageItem : [];
-  let code = pickStr(st, 'showPickupCode', 'show_pickup_code', 'pickUpCode', 'pickupCode');
-  if (!code) code = pickStr(feat, 'stationOrderPickUpCode', 'station_order_pick_up_code');
+  /* 取件码取法与原 App cainiao.ts 的 pickupCodeOf 一致：
+   * authCode 优先；是占位符（NEEDSMS 等）就试 showPickupCode（“true”/“false”
+   * 只是开关不是码）；再试 feature 里的 stationOrderPickUpCode */
+  let code = pickStr(st, 'authCode', 'auth_code');
+  if (!code || CODE_PLACEHOLDER.indexOf(code.toLowerCase()) !== -1) {
+    const alt = pickStr(st, 'showPickupCode', 'show_pickup_code', 'pickUpCode', 'pickupCode');
+    code = (alt && alt.toLowerCase() !== 'true' && alt.toLowerCase() !== 'false')
+      ? alt : pickStr(feat, 'stationOrderPickUpCode', 'station_order_pick_up_code');
+  }
   if (code && CODE_PLACEHOLDER.indexOf(code.toLowerCase()) !== -1) code = '';
   const first = items[0] || {};
   return {
@@ -386,6 +400,11 @@ function retOf(j, txt) {
   return (txt || '').slice(0, 80) || '无响应';
 }
 
+function countPackages(j) {
+  const d = mtopData(j);
+  return (d && Array.isArray(d.packages)) ? d.packages.length : 0;
+}
+
 async function onSchedule(ctx) {
   ctxRef = ctx;
   const cookies = loadJSON(ctx, COOKIES_KEY) || {};
@@ -423,7 +442,7 @@ async function onSchedule(ctx) {
   let ret = retOf(r.j, r.txt);
   const upper = ret.toUpperCase();
   if (upper.indexOf('SUCCESS') !== -1) {
-    const n = (r.j && r.j.data && Array.isArray(r.j.data.packages)) ? r.j.data.packages.length : 0;
+    const n = countPackages(r.j);
     if (check.last !== 'ok') {
       check.last = 'ok';
       saveJSON(ctx, CHECK_KEY, check);
@@ -441,7 +460,7 @@ async function onSchedule(ctx) {
         const r2 = await mtopList(fresh);
         const ret2 = retOf(r2.j, r2.txt);
         if (ret2.toUpperCase().indexOf('SUCCESS') !== -1) {
-          const n = (r2.j && r2.j.data && Array.isArray(r2.j.data.packages)) ? r2.j.data.packages.length : 0;
+          const n = countPackages(r2.j);
           if (check.last !== 'ok') {
             check.last = 'ok';
             saveJSON(ctx, CHECK_KEY, check);
