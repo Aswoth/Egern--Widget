@@ -29,7 +29,7 @@
  *   列表接口 mtop.cainiao.lpc.packageservice.queryPdsPackageDataList
  */
 
-const PROBE_VERSION = 'v7';
+const PROBE_VERSION = 'v8';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -48,6 +48,7 @@ const SNAP_KEY = 'probe.parcels.v1';
 const APIS_KEY = 'probe.apis.v1';
 const BODYSHAPE_KEY = 'probe.bodyshape.v1';
 const BODYREADS_KEY = 'probe.bodyreads.v1';
+const BODYFAIL_KEY = 'probe.bodyfail.v1';
 
 /* 只存这几个淘宝 cookie，其余一律不碰 */
 const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
@@ -286,10 +287,13 @@ async function onResponse(ctx) {
         if (!shapes[api]) {
           if (d && typeof d === 'object') {
             shapes[api] = { keys: Object.keys(d).slice(0, 12) };
-          } else if (d !== null && d !== undefined) {
+          } else if (d === null) {
+            shapes[api] = { type: 'null' };
+          } else if (d !== undefined) {
             shapes[api] = { type: typeof d };
           }
           if (shapes[api]) {
+            shapes[api].ret = retOf(data, '').slice(0, 30);
             const ks = Object.keys(shapes);
             if (ks.length > 8) delete shapes[ks[0]];
             saveJSON(ctx, BODYSHAPE_KEY, shapes);
@@ -310,7 +314,20 @@ async function onResponse(ctx) {
       }
       return { body: data };
     }
-  } catch (e) { /* 没 body 或不是 JSON：透传 */ }
+  } catch (e) {
+    /* 体没读到：记下来是哪个接口、错在哪、状态码是多少。
+     * 读不到和“入口没跑”是两回事，这个数能分清。 */
+    try {
+      const fails = loadJSON(ctx, BODYFAIL_KEY) || {};
+      const key = api || '(unknown)';
+      const f = fails[key] || { n: 0, err: '', status: 0 };
+      f.n += 1;
+      f.err = String((e && e.message) || e).slice(0, 50);
+      try { f.status = ctx.response.status || 0; } catch (e2) { /* 忽略 */ }
+      fails[key] = f;
+      saveJSON(ctx, BODYFAIL_KEY, fails);
+    } catch (e2) { /* 探针自己不出错 */ }
+  }
   return undefined;
 }
 
@@ -540,9 +557,11 @@ async function onStatus(ctx) {
   /* 第二条：接口与体结构。单发一条，免得被系统截断。 */
   const lines2 = [];
   const apis = loadJSON(ctx, APIS_KEY) || {};
-  const topApis = Object.keys(apis).sort((a, b) => apis[b] - apis[a]).slice(0, 4);
+  const apiKeys = Object.keys(apis);
+  const topApis = apiKeys.sort((a, b) => apis[b] - apis[a]).slice(0, 5);
   if (topApis.length) {
-    lines2.push('接口：' + topApis.map(a => shortApi(a) + '(' + apis[a] + ')').join('、'));
+    lines2.push('接口：' + topApis.map(a => shortApi(a) + '(' + apis[a] + ')').join('、')
+      + (apiKeys.length > 5 ? '，等共 ' + apiKeys.length + ' 个' : ''));
   } else {
     lines2.push('接口：还没记到');
   }
@@ -551,14 +570,25 @@ async function onStatus(ctx) {
   if (shapeKeys.length) {
     for (const k of shapeKeys.slice(0, 3)) {
       const s = shapes[k];
+      const ret = s.ret ? '，ret=' + s.ret : '';
       if (s.keys) {
-        lines2.push('体结构 ' + shortApi(k) + '：data 有 ' + (s.keys.length ? s.keys.join('、') : '（空对象）'));
+        lines2.push('体结构 ' + shortApi(k) + '：data 有 ' + (s.keys.length ? s.keys.join('、') : '（空对象）') + ret);
       } else if (s.type) {
-        lines2.push('体结构 ' + shortApi(k) + '：data 是 ' + s.type + '，不是对象');
+        lines2.push('体结构 ' + shortApi(k) + '：data 是 ' + s.type + '，不是对象' + ret);
       }
     }
   } else {
     lines2.push('体结构：还没记到');
+  }
+  const fails = loadJSON(ctx, BODYFAIL_KEY) || {};
+  const failKeys = Object.keys(fails).sort((a, b) => fails[b].n - fails[a].n).slice(0, 2);
+  if (failKeys.length) {
+    for (const k of failKeys) {
+      const f = fails[k];
+      lines2.push('体读失败 ' + shortApi(k) + '：' + f.n + ' 次（' + (f.err || '无错误信息') + '，状态 ' + (f.status || '?') + '）');
+    }
+  } else {
+    lines2.push('体读失败：无');
   }
   notify(ctx, '探针状态·接口', lines2.join('\n'));
 }
