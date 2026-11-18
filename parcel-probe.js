@@ -12,6 +12,10 @@
  *      另外每个域名第一次出现时上报一次它带了哪些 cookie 名（只记名不记值），
  *      用于诊断小程序/原生 App 用的凭证跟淘宝是不是同一套。
  *      v2：MITM 与匹配新增 acs.m.taobao.com（淘宝原生 App 的 MTOP 网关）。
+ *   3) http_response（parcel-probe-body，v3）：
+ *      只对 h5api / *.cainiao.com 生效且 body_required，读到响应体是包裹列表
+ *      （data.packages）就存一份精简快照，原样把响应体返回，不改内容。
+ *      这样不用调接口也能拿到数据：打开菜鸟 App/小程序刷一次就有快照。
  *   2) schedule（parcel-probe-check，每 10 分钟）：
  *      读存下的 cookie，用原 App 同款签名（纯 MD5，appKey 12574478）
  *      调一次菜鸟“我的包裹”接口，把结果发通知：
@@ -38,6 +42,7 @@ const HITS_KEY = 'probe.hits.v1';
 const NOTED_KEY = 'probe.noted.v1';
 const CHECK_KEY = 'probe.check.v1';
 const NAMES_KEY = 'probe.cookienames.v1';
+const SNAP_KEY = 'probe.parcels.v1';
 
 /* 只存这几个淘宝 cookie，其余一律不碰 */
 const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
@@ -214,8 +219,7 @@ async function onResponse(ctx) {
   Object.assign(found, pickCookies(setCookies));
 
   const names = Object.keys(found);
-  if (names.length === 0) return;
-
+  /* 注意：没有想要的 cookie 也不能直接 return，后面的体捕获还要跑 */
   const stored = loadJSON(ctx, COOKIES_KEY) || {};
   let changed = false;
   for (const k of names) {
@@ -229,6 +233,58 @@ async function onResponse(ctx) {
   if (stored['_m_h5_tk'] && stored['cookie2'] && stored['t'] && !noted(ctx, 'all-ok')) {
     notify(ctx, '探针：cookie 齐了', '_m_h5_tk、cookie2、t 都已存下，等定时脚本的调通结果');
   }
+
+  /* 抓响应体里的包裹列表（只在 body_required 的那条 entry 下才有 body，
+   * 没 body 时 json() 会失败，直接透传。读到 body 就原样返回，不改内容。） */
+  try {
+    const data = await ctx.response.json();
+    if (data && typeof data === 'object') {
+      const d = data.data || {};
+      if (Array.isArray(d.packages)) {
+        const pkgs = d.packages.map(trimPackage).filter(Boolean);
+        const withCode = pkgs.filter(p => p.pickupCode).length;
+        const sig = pkgs.length + '/' + withCode;
+        const prev = loadJSON(ctx, SNAP_KEY);
+        saveJSON(ctx, SNAP_KEY, { at: Date.now(), count: pkgs.length, withCode: withCode, sig: sig, packages: pkgs });
+        if (!prev || prev.sig !== sig) {
+          notify(ctx, '探针：抓到包裹列表', pkgs.length + ' 个包裹，其中 ' + withCode + ' 个有取件码');
+        }
+      }
+      return { body: data };
+    }
+  } catch (e) { /* 没 body 或不是 JSON：透传 */ }
+  return undefined;
+}
+
+/* 把菜鸟列表里一条包裹精简成快照字段（字段名与原 App cainiao.ts 一致） */
+const CODE_PLACEHOLDER = ['needsms', 'need_sms', '-1', '0', '', 'null', 'none'];
+function pickStr(o) {
+  if (!o || typeof o !== 'object') return '';
+  for (let i = 1; i < arguments.length; i++) {
+    const v = o[arguments[i]];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+function trimPackage(p) {
+  if (!p || typeof p !== 'object') return null;
+  const st = p.packageStation || {};
+  const feat = p.feature || {};
+  const items = Array.isArray(p.packageItem) ? p.packageItem : [];
+  let code = pickStr(st, 'showPickupCode', 'show_pickup_code', 'pickUpCode', 'pickupCode');
+  if (!code) code = pickStr(feat, 'stationOrderPickUpCode', 'station_order_pick_up_code');
+  if (code && CODE_PLACEHOLDER.indexOf(code.toLowerCase()) !== -1) code = '';
+  const first = items[0] || {};
+  return {
+    mailNo: pickStr(p, 'mailNo', 'mail_no'),
+    title: pickStr(feat, 'recommendPackageTitle', 'recommend_package_title')
+      || pickStr(p, 'userRemark')
+      || pickStr(first, 'itemTitle', 'item_title'),
+    company: pickStr(p, 'cpName', 'cp_name', 'companyName') || pickStr(p, 'cpCode', 'cp_code'),
+    pickupCode: code,
+    station: pickStr(st, 'pointName', 'point_name', 'stationName', 'name'),
+    status: pickStr(p, 'status', 'statusDesc', 'packageStatus'),
+  };
 }
 
 /* ---------------- 定时验证分支（schedule） ---------------- */
@@ -371,7 +427,7 @@ async function onSchedule(ctx) {
 
 export default async function (ctx) {
   try {
-    if (ctx.response) { await onResponse(ctx); return; }
+    if (ctx.response) { return await onResponse(ctx); }
     if (ctx.cron !== undefined && ctx.cron !== null) { await onSchedule(ctx); return; }
     /* 手动点运行：当作一次定时检查 */
     await onSchedule(ctx);

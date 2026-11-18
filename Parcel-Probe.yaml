@@ -19,6 +19,12 @@ scriptings:
       match: "^https://(h5api\\.m\\.taobao\\.com|h5\\.m\\.taobao\\.com|acs\\.m\\.taobao\\.com|[^/]*\\.cainiao\\.com)/"
       script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel-probe.js
       timeout: 10
+  - http_response:
+      name: parcel-probe-body
+      match: "^https://(h5api\\.m\\.taobao\\.com|[^/]*\\.cainiao\\.com)/"
+      script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel-probe.js
+      body_required: true
+      timeout: 10
   - schedule:
       name: parcel-probe-check
       cron: "*/10 * * * *"
