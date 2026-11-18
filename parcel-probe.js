@@ -29,6 +29,8 @@
  *   列表接口 mtop.cainiao.lpc.packageservice.queryPdsPackageDataList
  */
 
+const PROBE_VERSION = 'v4';
+
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
 const MTOP_LIST_API = 'mtop.cainiao.lpc.packageservice.queryPdsPackageDataList';
@@ -423,13 +425,42 @@ async function onSchedule(ctx) {
   }
 }
 
+/* ---------------- 手动状态查询（generic，点运行就报一次现状） ----------------
+ * 通知是去重的，报过就不再报，光看“有没有新通知”分不清是没抓到还是
+ * 已经抓过了。这个入口就是用来查的：把存储里的现状一次性发出来。 */
+
+async function onStatus(ctx) {
+  const lines = ['版本 ' + PROBE_VERSION];
+  const hits = loadJSON(ctx, HITS_KEY);
+  if (hits && hits.count > 0) {
+    const parts = [];
+    for (const h of Object.keys(hits.hosts || {})) parts.push(h + '(' + hits.hosts[h] + ')');
+    lines.push('见过请求：' + parts.join('、'));
+  } else {
+    lines.push('还没见过任何匹配请求');
+  }
+  const cookies = loadJSON(ctx, COOKIES_KEY) || {};
+  const names = Object.keys(cookies);
+  lines.push('_m_h5_tk：' + (cookies['_m_h5_tk'] ? '已抓到' : '未抓到')
+    + (names.length ? '（已存 ' + names.join('、') + '）' : '（未存 cookie）'));
+  const snap = loadJSON(ctx, SNAP_KEY);
+  if (snap && snap.count > 0) {
+    lines.push('包裹快照：' + snap.count + ' 个，其中 ' + (snap.withCode || 0) + ' 个有取件码');
+  } else {
+    lines.push('包裹快照：无');
+  }
+  const check = loadJSON(ctx, CHECK_KEY) || {};
+  if (check.last) lines.push('上次定时检查：' + String(check.last).slice(0, 40));
+  notify(ctx, '探针状态', lines.join('\n'));
+}
+
 /* ---------------- 入口 ---------------- */
 
 export default async function (ctx) {
   try {
     if (ctx.response) { return await onResponse(ctx); }
     if (ctx.cron !== undefined && ctx.cron !== null) { await onSchedule(ctx); return; }
-    /* 手动点运行：当作一次定时检查 */
-    await onSchedule(ctx);
+    /* 手动点运行（generic 入口）：报一次现状 */
+    await onStatus(ctx);
   } catch (e) { /* 探针自己不出错、不挡请求 */ }
 }
