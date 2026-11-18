@@ -23,7 +23,7 @@
  *   generic（parcel-status）→ 手动查一次现状
  */
 
-const PARCEL_VERSION = 'v2';
+const PARCEL_VERSION = 'v3';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -47,9 +47,10 @@ const SNAP_TTL_MS = 30 * 60 * 1000;
 
 const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
 
-/* 状态判定（原 Scripting 版 model.ts / kdniao.ts 的正则） */
-const DELIVERED_RE = /签收|已签收|已送达|已取件|已领取|已投递/;
-const PICKABLE = /待取件|已到站|已暂存|已存放|已放入|已代收|送达代收点|请及时取|请及时领取|凭取件码|待领取|已签收|已妥收|快递柜|驿站|代收点/;
+/* 状态判定（原 Scripting 版 model.ts / kdniao.ts 的正则）。
+ * 注意：裸“自提/完成”不能算已签收——“待自提”是待取，“配送完成”才是签收。 */
+const DELIVERED_RE = /已签收|签收成功|已妥投|妥投|已代收|代收成功|已自提|自提成功|取件成功|已取件|已完成|派送完成|配送完成|已送达|已领取|已投递/;
+const PICKABLE = /待取件|已到站|已暂存|已存放|已放入|送达代收点|请及时取|请及时领取|凭取件码|待领取|已妥收|快递柜|驿站|代收点|待自提|待取货|已入柜|请凭码取件/;
 const TRANSIT_ONLY = /转运中心|分拨中心|集散中心|运转中心|发往|已发出|正在派送|派件中|揽收|已到达[^，。]*中心/;
 
 /* ---------------- MD5（纯 JS，RFC 1321） ---------------- */
@@ -236,15 +237,52 @@ function findList(d) {
   return null;
 }
 /* 状态文案 → 家族。原 App 的状态码：SIGN/CANCEL/REJECT/RETURN/LOST 都是已完结，
- * PICKUP 是待取；中文文案走正则。 */
+ * PICKUP 是待取；轻应用接口的状态码可能是 DELIVERED/SIGNED 这类英文，也认。
+ * 中文文案走正则。 */
 function familyOf(raw, code) {
   const s = String(raw || '');
   if (DELIVERED_RE.test(s)) return 'delivered';
-  if (/^(SIGN|CANCEL|REJECT|RETURN|LOST)$/i.test(s.trim())) return 'delivered';
+  if (/^(SIGN|SIGNED|DELIVERED|DELIVERY_SUCCESS|SUCCESS|COMPLETE|COMPLETED|FINISHED|DONE|CANCEL|REJECT|RETURN|LOST)$/i.test(s.trim())) return 'delivered';
+  if (/^(PICKUP|PICK_UP|ARRIVED|ARRIVAL|AT_STATION|IN_STATION|WAITING_PICKUP|READY_PICKUP)$/i.test(s.trim())) return 'arrived';
+  if (/^(TRANSIT|IN_TRANSIT|ON_THE_WAY|SHIPPING|TRANSPORT|INTRANSIT)$/i.test(s.trim())) return 'transit';
   if (/PICKUP/i.test(s)) return 'arrived';
   if (PICKABLE.test(s)) return 'arrived';
   if (code) return 'arrived';
   return s ? 'transit' : 'none';
+}
+/* 在包裹对象里按 key 的意思找字段：轻应用接口的字段名和 H5 版不完全一样，
+ * 先扫本层、再往 feature/packageStation 等嵌套对象里找（最多两层）。 */
+function scanField(obj, keyRe, skipRe, depth) {
+  if (!obj || typeof obj !== 'object') return '';
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    if (keyRe.test(k) && !skipRe.test(k) && (typeof v === 'string' || typeof v === 'number') && String(v) !== '') return String(v);
+  }
+  if (depth >= 2) return '';
+  for (const k of Object.keys(obj)) {
+    const v = obj[k];
+    if (v && typeof v === 'object') {
+      const r = scanField(v, keyRe, skipRe, depth + 1);
+      if (r) return r;
+    }
+  }
+  return '';
+}
+const CARRIER_NAMES = { YUNDA: '韵达快递', SF: '顺丰速运', SHUNFENG: '顺丰速运', ZTO: '中通快递', ZHONGTONG: '中通快递', YTO: '圆通速递', YUANTONG: '圆通速递', STO: '申通快递', SHENTONG: '申通快递', JD: '京东快递', JT: '极兔速递', JTEXPRESS: '极兔速递', EMS: 'EMS', YZPY: '邮政快递', YOUZHENGGUONEI: '邮政快递', DBWL: '德邦快递', HTKY: '百世快递', BESTEX: '百世快递', ZJS: '宅急送', TTKDEX: '天天快递', GTO: '国通快递', YS: '优速快递' };
+/* 公司名：代码翻中文；已经是中文名就原样用；接口里没有就按单号前缀认
+ *（顺丰 SF、韵达 31/32/43、中通 75/76——这三组按用户实测数据核对过）。 */
+function carrierName(raw, no) {
+  const s = String(raw || '').trim();
+  if (s && !/签收|在途|派送|取件|到达|运输|揽收|待取|已取|妥投|代收|物流/.test(s)) {
+    const up = s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (CARRIER_NAMES[up]) return CARRIER_NAMES[up];
+    if (/[\u4e00-\u9fa5]/.test(s) && s.length <= 12) return s;
+  }
+  const n = String(no || '');
+  if (/^SF\d/i.test(n)) return '顺丰速运';
+  if (/^(31|32|43)\d/.test(n)) return '韵达快递';
+  if (/^(75|76)\d/.test(n)) return '中通快递';
+  return '';
 }
 /* 菜鸟一条包裹 → 统一快照形状（取件码取法与原 App cainiao.ts 的 pickupCodeOf 一致） */
 function trimPackage(p) {
@@ -260,19 +298,28 @@ function trimPackage(p) {
   }
   if (code && CODE_PLACEHOLDER.indexOf(code.toLowerCase()) !== -1) code = '';
   const first = items[0] || {};
-  const rawStatus = pickStr(p, 'status', 'statusDesc', 'packageStatus');
+  /* 状态不只认 status/statusDesc 几个固定 key：轻应用接口可能换字段名，
+   * 按 key 的意思全对象扫一遍；isSign/signTime 这类签收标记也认。 */
+  const rawStatus = pickStr(p, 'status', 'statusDesc', 'packageStatus')
+    || scanField(p, /status|state|sign|deliver/i, /company|express|carrier|name|time|no|number/i, 0);
+  const signedFlag = p.isSign === true || p.signed === true || !!pickStr(p, 'signTime', 'signedTime');
   /* 接口有时只给英文状态码，显示时翻成中文 */
-  const statusText = { SIGN: '已签收', PICKUP: '待取件', TRANSIT: '在途', CANCEL: '已取消', REJECT: '已拒收', RETURN: '已退回', LOST: '已丢失' }[rawStatus] || rawStatus;
+  const statusText = { SIGN: '已签收', SIGNED: '已签收', DELIVERED: '已签收', PICKUP: '待取件', TRANSIT: '在途', IN_TRANSIT: '在途', CANCEL: '已取消', REJECT: '已拒收', RETURN: '已退回', LOST: '已丢失' }[String(rawStatus).toUpperCase()] || rawStatus;
   const station = pickStr(st, 'pointName', 'point_name', 'stationName', 'name');
+  const no = pickStr(p, 'mailNo', 'mail_no');
+  const rawCarrier = pickStr(p, 'cpName', 'cp_name', 'companyName')
+    || pickStr(p, 'cpCode', 'cp_code')
+    || scanField(p, /company|express|carrier|brand|^cp/i, /status|state|sign|desc|text|time|no|number|mobile|phone/i, 0);
+  const rawTitle = pickStr(feat, 'recommendPackageTitle', 'recommend_package_title')
+    || pickStr(p, 'userRemark')
+    || pickStr(first, 'itemTitle', 'item_title');
   return {
-    no: pickStr(p, 'mailNo', 'mail_no'),
-    title: pickStr(feat, 'recommendPackageTitle', 'recommend_package_title')
-      || pickStr(p, 'userRemark')
-      || pickStr(first, 'itemTitle', 'item_title'),
-    company: pickStr(p, 'cpName', 'cp_name', 'companyName') || pickStr(p, 'cpCode', 'cp_code'),
+    no: no,
+    title: cleanTitle(rawTitle) || rawTitle,
+    company: carrierName(rawCarrier, no),
     code: code,
     station: station,
-    status: familyOf(rawStatus, code),
+    status: signedFlag ? 'delivered' : familyOf(rawStatus, code),
     statusText: statusText,
     latest: (station ? station + ' · ' : '') + (statusText || '在途'),
     arrivedAt: 0,
@@ -303,36 +350,64 @@ function mergeSnapshot(prevSnap, freshParcels) {
   return {
     at: Date.now(), updatedAt: Date.now(),
     count: parcels.length, withCode: withCode,
-    sig: parcels.length + '/' + withCode, parcels: parcels,
+    /* 指纹必须含状态和取件码，不然状态翻了（在途→已签收）也认不出变化，
+     * 变化通知就永远不触发。 */
+    sig: parcels.map(p => p.no + '=' + p.status + '/' + (p.code || '')).join(','),
+    parcels: parcels,
   };
 }
 /* 对照旧快照，只报到站/签收的变化，返回报了几条。第一次快照是基线，不报
- *（免得 5 个已签收的一起刷屏）。 */
+ *（免得 5 个已签收的一起刷屏）。一次变好几个就合成一条汇总，不连刷。 */
 function notifyTransitions(ctx, prevSnap, snap) {
   if (!prevSnap || !prevSnap.updatedAt) return 0;
   const prevByNo = {};
   (prevSnap.parcels || []).forEach(p => { prevByNo[p.no] = p; });
-  let n = 0;
+  const arrived = [];
+  const delivered = [];
   snap.parcels.forEach(p => {
     const prev = prevByNo[p.no];
     const prevState = prev ? stateOfParcel(prev) : 'none';
     const nowState = stateOfParcel(p);
     if (prevState === nowState) return;
-    if (nowState === 'arrived') {
-      notify(ctx, '包裹到站可取', (displayTitle(p)) + (p.code ? '，取件码 ' + p.code : '') + (p.latest ? '\n' + p.latest : ''));
-      n += 1;
-    } else if (nowState === 'delivered') {
-      notify(ctx, '包裹已签收', (displayTitle(p)) + (p.latest ? '\n' + p.latest : ''));
-      n += 1;
-    }
+    if (nowState === 'arrived') arrived.push(p);
+    else if (nowState === 'delivered') delivered.push(p);
   });
+  let n = 0;
+  if (arrived.length === 1) {
+    const p = arrived[0];
+    notify(ctx, '包裹到站可取', displayTitle(p) + (p.code ? '，取件码 ' + p.code : '') + (p.latest ? '\n' + p.latest : ''));
+    n += 1;
+  } else if (arrived.length > 1) {
+    notify(ctx, arrived.length + ' 个包裹到站可取', arrived.map(p => displayTitle(p) + (p.code ? '（取件码 ' + p.code + '）' : '')).join('\n'));
+    n += 1;
+  }
+  if (delivered.length === 1) {
+    const p = delivered[0];
+    notify(ctx, '包裹已签收', displayTitle(p) + (p.latest ? '\n' + p.latest : ''));
+    n += 1;
+  } else if (delivered.length > 1) {
+    notify(ctx, delivered.length + ' 个包裹已签收', delivered.map(p => displayTitle(p)).join('\n'));
+    n += 1;
+  }
   return n;
 }
-/* 显示用标题：没商品名时不贴一长串单号，显示“公司 · 尾号后四位” */
+/* 商品名去冗长：去掉开头的【促销/渠道】前缀和末尾的规格
+ *（【正品行货】赫莲娜黑绷带面霜 50ml/100ml → 赫莲娜黑绷带面霜）。 */
+function cleanTitle(t) {
+  let s = String(t || '').trim();
+  while (/^【[^】]*】\s*/.test(s)) s = s.replace(/^【[^】]*】\s*/, '');
+  s = s.replace(/\s*\d+(\.\d+)?\s*(ml|g|kg|l|片|只|瓶|盒|条|包|罐|支|套|件|枚)(\s*\/\s*\d+(\.\d+)?\s*(ml|g|kg|l))?\s*$/i, '');
+  return s.trim();
+}
+/* 显示用标题：有商品名显示商品名（已去冗长）；没商品名显示“快递公司 · 后四位”，
+ * 不用“尾号”这个词，全号仍在快照里。没公司名也认不出前缀时才显示全号。 */
 function displayTitle(p) {
   if (p.title) return p.title;
-  if (p.company && p.no) return p.company + ' · 尾号 ' + String(p.no).slice(-4);
-  return p.no || '';
+  if (p.no) {
+    if (p.company) return p.company + ' · ' + String(p.no).slice(-4);
+    return p.no;
+  }
+  return '';
 }
 
 /* ---------------- 体捕获入口（http_response） ---------------- */
@@ -795,7 +870,9 @@ function capsule(text, color, big) {
 function parcelRow(p, textMain, textSub) {
   const st = stateOfParcel(p);
   const main = st === 'arrived' && p.code ? p.code : displayTitle(p);
-  const sub = (p.company ? p.company + ' · ' : '') + (p.latest || '暂无轨迹');
+  /* 主行已经是“公司 · 后四位”时副行不再重复公司名；其他情况副行补上公司名 */
+  const mainHasCompany = !p.title && p.company && !(st === 'arrived' && p.code);
+  const sub = (mainHasCompany ? '' : (p.company ? p.company + ' · ' : '')) + (p.latest || '暂无轨迹');
   const tag = st === 'arrived' ? capsule('待取', '#3E9B5F', true)
     : st === 'delivered' ? capsule('已取', '#8A8A8E', true)
     : capsule('在途', '#E8894F', true);
@@ -865,6 +942,7 @@ async function renderWidget(ctx) {
   const all = snap.parcels || [];
   const pending = all.filter((p) => stateOfParcel(p) === 'arrived');
   const transit = all.filter((p) => stateOfParcel(p) === 'transit' || stateOfParcel(p) === 'none');
+  const delivered = all.filter((p) => stateOfParcel(p) === 'delivered');
   const statsText = '待取 ' + pending.length + ' · 在途 ' + transit.length + ' · ' + syncLabel(snap.updatedAt);
 
   if (family === 'accessoryCircular') {
@@ -907,13 +985,20 @@ async function renderWidget(ctx) {
     : family === 'systemMedium' ? 3
     : family === 'systemLarge' ? 8
     : family === 'systemExtraLarge' ? 10 : 3;
+  /* 行按待取 → 在途 → 已取排，已取也显示（不然状态修对了反而看不见包裹）。
+   * 底栏只列非零的数。 */
   const rows = [];
   pending.slice(0, slots).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
   transit.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
+  delivered.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
   const hidden = all.length - rows.length;
-  const footerText = '待取 ' + pending.length + ' · 在途 ' + transit.length
-    + (hidden > 0 ? ' · 还有 ' + hidden + ' 个' : '')
-    + ' · ' + syncLabel(snap.updatedAt);
+  const footerParts = [];
+  if (pending.length) footerParts.push('待取 ' + pending.length);
+  if (transit.length) footerParts.push('在途 ' + transit.length);
+  if (delivered.length) footerParts.push('已取 ' + delivered.length);
+  if (hidden > 0) footerParts.push('还有 ' + hidden + ' 个');
+  footerParts.push(syncLabel(snap.updatedAt));
+  const footerText = footerParts.join(' · ');
 
   const children = [];
   children.push({
