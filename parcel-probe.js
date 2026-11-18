@@ -9,8 +9,10 @@
  *   1) http_response（parcel-probe-capture）：
  *      只读请求头 Cookie 和响应头 Set-Cookie，不读响应体、不改任何请求。
  *      抓到 _m_h5_tk 就存进 ctx.storage，并发一次通知（通知里不带 cookie 值）。
- *      另外每个域名第一次出现时上报一次它带了哪些 cookie 名（只记名不记值），
+ *      另外每个域名带了哪些 cookie 名（只记名不记值），实时上报，
  *      用于诊断小程序/原生 App 用的凭证跟淘宝是不是同一套。
+ *      通知是实时的：事件类通知 60 秒冷却（1 分钟内同种只报一次，
+ *      超过 1 分钟再有就再报）；内容变了立刻报，不等冷却。
  *      v2：MITM 与匹配新增 acs.m.taobao.com（淘宝原生 App 的 MTOP 网关）。
  *   3) http_response（parcel-probe-body，v3）：
  *      只对 h5api / *.cainiao.com 生效且 body_required，读到响应体是包裹列表
@@ -29,7 +31,7 @@
  *   列表接口 mtop.cainiao.lpc.packageservice.queryPdsPackageDataList
  */
 
-const PROBE_VERSION = 'v8';
+const PROBE_VERSION = 'v9';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -130,9 +132,19 @@ function loadJSON(ctx, key) {
 function saveJSON(ctx, key, val) {
   try { ctx.storage.setJSON(key, val); } catch (e) { /* 忽略 */ }
 }
-function noted(ctx, flag) {
+/* 实时通知：同一件事不是只报一次，而是冷却多久就再报一次。
+ * cooldownMs 省略（0）= 只报一次，留给状态类事实（tk-ok、storage-split）。
+ * 事件类通知传 60000：1 分钟内同种只报一次，免得一次打开刷几十条；
+ * 超过 1 分钟再有就再报。旧版存的是时间戳，直接沿用。 */
+function noted(ctx, flag, cooldownMs) {
   const n = loadJSON(ctx, NOTED_KEY) || {};
-  if (n[flag]) return true;
+  const t = n[flag];
+  const cd = cooldownMs || 0;
+  if (t === true) return true;
+  if (typeof t === 'number') {
+    if (cd === 0) return true;
+    if (Date.now() - t < cd) return true;
+  }
   n[flag] = Date.now();
   saveJSON(ctx, NOTED_KEY, n);
   return false;
@@ -217,8 +229,8 @@ async function onResponse(ctx) {
     }
   }
 
-  /* 第一次有请求穿过脚本 = MITM 对这个域名生效了 */
-  if (!noted(ctx, 'mitm-ok')) {
+  /* 第一次有请求穿过脚本 = MITM 对这个域名生效了（实时：60 秒冷却） */
+  if (!noted(ctx, 'mitm-ok', 60000)) {
     notify(ctx, '探针：MITM 生效', '已看到 ' + host + ' 的请求，抓包链路通了');
   }
 
@@ -235,11 +247,11 @@ async function onResponse(ctx) {
     if (!allNames[host]) {
       allNames[host] = seenNames;
       saveJSON(ctx, NAMES_KEY, allNames);
-      if (!noted(ctx, 'names-' + host)) {
-        notify(ctx, '探针：看到的 cookie 名', host + '：' + seenNames.join('、'));
-      }
     }
-  } else if (!noted(ctx, 'nocookie-hdr-' + host)) {
+    if (!noted(ctx, 'names-' + host, 60000)) {
+      notify(ctx, '探针：看到的 cookie 名', host + '：' + seenNames.join('、'));
+    }
+  } else if (!noted(ctx, 'nocookie-hdr-' + host, 60000)) {
     notify(ctx, '探针：没看到 Cookie 头', host + ' 的请求里没有 Cookie，可能是脚本读不到请求头');
   }
 
@@ -267,10 +279,14 @@ async function onResponse(ctx) {
    * 没 body 时 json() 会失败，直接透传。读到 body 就原样返回，不改内容。） */
   try {
     const data = await ctx.response.json();
-    /* 体读到了：计数一次（用来判断体捕获入口到底有没有在跑） */
+    /* 体读到了：计数一次（用来判断体捕获入口到底有没有在跑），按接口分开记 */
     const reads = loadJSON(ctx, BODYREADS_KEY) || { count: 0, lastApi: '' };
     reads.count += 1;
     reads.lastApi = api || '';
+    if (api) {
+      reads.perApi = reads.perApi || {};
+      reads.perApi[api] = (reads.perApi[api] || 0) + 1;
+    }
     saveJSON(ctx, BODYREADS_KEY, reads);
     if (data && typeof data === 'object') {
       let d = mtopData(data);
@@ -308,7 +324,9 @@ async function onResponse(ctx) {
         const sig = pkgs.length + '/' + withCode;
         const prev = loadJSON(ctx, SNAP_KEY);
         saveJSON(ctx, SNAP_KEY, { at: Date.now(), count: pkgs.length, withCode: withCode, sig: sig, packages: pkgs });
-        if (!prev || prev.sig !== sig) {
+        /* 实时：内容变了立刻报；内容没变，超过 1 分钟也再报一次 */
+        const listDue = !noted(ctx, 'list', 60000);
+        if (!prev || prev.sig !== sig || listDue) {
           notify(ctx, '探针：抓到包裹列表', pkgs.length + ' 个包裹，其中 ' + withCode + ' 个有取件码');
         }
       }
@@ -458,7 +476,7 @@ async function onSchedule(ctx) {
       }
       return;
     }
-    if (!noted(ctx, 'nocookie')) {
+    if (!noted(ctx, 'nocookie', 3600000)) {
       notify(ctx, '探针：还没抓到 cookie', '打开淘宝或菜鸟 App 刷一刷，再等 10 分钟');
     }
     return;
@@ -568,7 +586,7 @@ async function onStatus(ctx) {
   const shapes = loadJSON(ctx, BODYSHAPE_KEY) || {};
   const shapeKeys = Object.keys(shapes);
   if (shapeKeys.length) {
-    for (const k of shapeKeys.slice(0, 3)) {
+    for (const k of shapeKeys.slice(0, 8)) {
       const s = shapes[k];
       const ret = s.ret ? '，ret=' + s.ret : '';
       if (s.keys) {
@@ -581,7 +599,7 @@ async function onStatus(ctx) {
     lines2.push('体结构：还没记到');
   }
   const fails = loadJSON(ctx, BODYFAIL_KEY) || {};
-  const failKeys = Object.keys(fails).sort((a, b) => fails[b].n - fails[a].n).slice(0, 2);
+  const failKeys = Object.keys(fails).sort((a, b) => fails[b].n - fails[a].n).slice(0, 3);
   if (failKeys.length) {
     for (const k of failKeys) {
       const f = fails[k];
@@ -589,6 +607,13 @@ async function onStatus(ctx) {
     }
   } else {
     lines2.push('体读失败：无');
+  }
+  /* 列表接口单列一行：调了几次、体读到几次、失败几次，一眼看清 */
+  const listKeys = Object.keys(apis).filter(a => a.indexOf('querypackagelist') !== -1 || a.indexOf('queryPdsPackageDataList') !== -1);
+  for (const la of listKeys) {
+    const r = (reads.perApi && reads.perApi[la]) || 0;
+    const f = (fails[la] && fails[la].n) || 0;
+    lines2.push('列表接口 ' + shortApi(la) + '：调了 ' + apis[la] + ' 次，体读到 ' + r + ' 次，失败 ' + f + ' 次');
   }
   notify(ctx, '探针状态·接口', lines2.join('\n'));
 }
