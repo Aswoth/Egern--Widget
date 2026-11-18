@@ -31,7 +31,7 @@
  *   列表接口 mtop.cainiao.lpc.packageservice.queryPdsPackageDataList
  */
 
-const PROBE_VERSION = 'v9';
+const PROBE_VERSION = 'v10';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -297,12 +297,16 @@ async function onResponse(ctx) {
           if (parsed && typeof parsed === 'object') d = mtopData({ data: parsed }) || parsed;
         } catch (e) { /* 不是 JSON 字符串，保持原样 */ }
       }
-      /* 记体结构：这个接口的 data 里都有哪些字段，列表到底叫什么 */
+      /* 记体结构：这个接口的 data 里都有哪些字段，列表到底叫什么。
+       * 小程序 lightapp 列表的 data 是 { result: ... }，再记一层 result 的字段。 */
       if (api) {
         const shapes = loadJSON(ctx, BODYSHAPE_KEY) || {};
         if (!shapes[api]) {
           if (d && typeof d === 'object') {
             shapes[api] = { keys: Object.keys(d).slice(0, 12) };
+            if (d.result && typeof d.result === 'object' && !Array.isArray(d.result)) {
+              shapes[api].resultKeys = Object.keys(d.result).slice(0, 12);
+            }
           } else if (d === null) {
             shapes[api] = { type: 'null' };
           } else if (d !== undefined) {
@@ -316,8 +320,7 @@ async function onResponse(ctx) {
           }
         }
       }
-      const list = (d && Array.isArray(d.packages)) ? d.packages
-        : (d && Array.isArray(d.packageList)) ? d.packageList : null;
+      const list = findList(d);
       if (list) {
         const pkgs = list.map(trimPackage).filter(Boolean);
         const withCode = pkgs.filter(p => p.pickupCode).length;
@@ -364,6 +367,25 @@ function mtopData(j) {
   const d = j && j.data;
   if (d && typeof d === 'object' && d.data !== undefined) return d.data;
   return d || null;
+}
+
+/* 在响应里找包裹数组：原版是 data.packages，小程序 lightapp 是
+ * data.result（对象里再套 packages/packageList/list，或直接就是数组）。 */
+function findList(d) {
+  if (!d || typeof d !== 'object') return null;
+  if (Array.isArray(d.packages)) return d.packages;
+  if (Array.isArray(d.packageList)) return d.packageList;
+  const r = d.result;
+  if (Array.isArray(r)) return r;
+  if (r && typeof r === 'object') {
+    if (Array.isArray(r.packages)) return r.packages;
+    if (Array.isArray(r.packageList)) return r.packageList;
+    if (Array.isArray(r.list)) return r.list;
+    if (Array.isArray(r.items)) return r.items;
+  }
+  if (Array.isArray(d.list)) return d.list;
+  if (Array.isArray(d.items)) return d.items;
+  return null;
 }
 
 function trimPackage(p) {
@@ -590,7 +612,8 @@ async function onStatus(ctx) {
       const s = shapes[k];
       const ret = s.ret ? '，ret=' + s.ret : '';
       if (s.keys) {
-        lines2.push('体结构 ' + shortApi(k) + '：data 有 ' + (s.keys.length ? s.keys.join('、') : '（空对象）') + ret);
+        const rk = s.resultKeys ? '（result 内有 ' + s.resultKeys.join('、') + '）' : '';
+        lines2.push('体结构 ' + shortApi(k) + '：data 有 ' + (s.keys.length ? s.keys.join('、') : '（空对象）') + rk + ret);
       } else if (s.type) {
         lines2.push('体结构 ' + shortApi(k) + '：data 是 ' + s.type + '，不是对象' + ret);
       }
