@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v5
+ * 包裹助手（Egern 版）v7
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -25,7 +25,7 @@
  *   generic（parcel-status）→ 手动查一次现状
  */
 
-const PARCEL_VERSION = 'v5';
+const PARCEL_VERSION = 'v7';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -348,6 +348,7 @@ function trimPackage(p) {
     no: no,
     title: cleanTitle(rawTitle) || rawTitle,
     company: carrierName(rawCarrier, no),
+    phoneTail: phoneTailOf(p),
     code: code,
     station: station,
     status: resolved,
@@ -498,8 +499,31 @@ function cleanTitle(t) {
   s = s.replace(/\s*\d+(\.\d+)?\s*(ml|g|kg|l|片|只|瓶|盒|条|包|罐|支|套|件|枚)\s*$/i, '');
   return s.trim();
 }
+/* 手机号后四位：接口里可能叫 mobile/phone/tel，也可能直接写在
+ * “手机尾号4514”这种文案里；找不到就返回空（显示时回落到运单号后四位）。 */
+function phoneTailOf(p) {
+  let found = '';
+  (function walk(o, depth) {
+    if (found || !o || typeof o !== 'object' || depth > 2) return;
+    for (const k of Object.keys(o)) {
+      const v = o[k];
+      if (typeof v === 'string' && v) {
+        const mTail = /尾号\D{0,3}(\d{4})/.exec(v);
+        if (mTail) { found = mTail[1]; return; }
+        if (/mobile|phone|tel/i.test(k)) {
+          if (/^\d{4}$/.test(v.trim())) { found = v.trim(); return; }
+          const mMask = /\d{3}\*+\d{4}/.exec(v);
+          if (mMask) { found = mMask[0].slice(-4); return; }
+        }
+      }
+      if (v && typeof v === 'object') walk(v, depth + 1);
+    }
+  })(p, 0);
+  return found;
+}
 /* 显示用标题：有商品名显示商品名（已去冗长，最长 12 字，多了截断）；
- * 没商品名显示“快递公司 · 后四位”，不用“尾号”这个词，全号仍在快照里。
+ * 没商品名显示“快递公司 · 手机号后四位”，接口里没有手机号后四位时
+ * 回落到“快递公司 · 运单号后四位”，不用“尾号”这个词，全号仍在快照里。
  * 没公司名也认不出前缀时才显示全号。 */
 function displayTitle(p) {
   if (p.title) {
@@ -507,7 +531,7 @@ function displayTitle(p) {
     return t.length > 12 ? t.slice(0, 12) + '…' : t;
   }
   if (p.no) {
-    if (p.company) return p.company + ' · ' + String(p.no).slice(-4);
+    if (p.company) return p.company + ' · ' + (p.phoneTail || String(p.no).slice(-4));
     return p.no;
   }
   return '';
@@ -1148,7 +1172,8 @@ async function renderWidget(ctx) {
   }
 
   /* 中/大/超大：参考原版 App 的版式——左列汇总（待取件大数字、在途、
-   * 已取、同步时间），右列包裹列表（公司小方块 + 名称/站点 + 右边小字状态）。 */
+   * 已取、同步时间），右列包裹列表（公司小方块 + 名称/站点 + 右边小字状态）。
+   * 中尺寸左列比右列矮一截，整列在行里上下居中，不然待取件那块看着靠上。 */
   const railChildren = [
     { type: 'text', text: '待取件', font: { size: 12, weight: 'medium' }, textColor: textMain },
     { type: 'text', text: String(pending.length), font: { size: 30, weight: 'bold' }, textColor: textMain },
@@ -1168,7 +1193,7 @@ async function renderWidget(ctx) {
   return {
     type: 'widget',
     padding: [12, 14, 10, 14],
-    children: [{ type: 'stack', direction: 'row', gap: 12, alignItems: 'flex-start', children: [rail, list] }],
+    children: [{ type: 'stack', direction: 'row', gap: 12, alignItems: family === 'systemMedium' ? 'center' : 'flex-start', children: [rail, list] }],
     refreshAfter,
   };
 }
