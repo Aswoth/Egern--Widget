@@ -29,7 +29,7 @@
  *   列表接口 mtop.cainiao.lpc.packageservice.queryPdsPackageDataList
  */
 
-const PROBE_VERSION = 'v6';
+const PROBE_VERSION = 'v7';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -47,6 +47,7 @@ const NAMES_KEY = 'probe.cookienames.v1';
 const SNAP_KEY = 'probe.parcels.v1';
 const APIS_KEY = 'probe.apis.v1';
 const BODYSHAPE_KEY = 'probe.bodyshape.v1';
+const BODYREADS_KEY = 'probe.bodyreads.v1';
 
 /* 只存这几个淘宝 cookie，其余一律不碰 */
 const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
@@ -265,20 +266,40 @@ async function onResponse(ctx) {
    * 没 body 时 json() 会失败，直接透传。读到 body 就原样返回，不改内容。） */
   try {
     const data = await ctx.response.json();
+    /* 体读到了：计数一次（用来判断体捕获入口到底有没有在跑） */
+    const reads = loadJSON(ctx, BODYREADS_KEY) || { count: 0, lastApi: '' };
+    reads.count += 1;
+    reads.lastApi = api || '';
+    saveJSON(ctx, BODYREADS_KEY, reads);
     if (data && typeof data === 'object') {
-      const d = mtopData(data) || {};
+      let d = mtopData(data);
+      /* 有的接口（小程序的 lightapp 列表）把 data 包成 JSON 字符串 */
+      if (typeof d === 'string') {
+        try {
+          const parsed = JSON.parse(d);
+          if (parsed && typeof parsed === 'object') d = mtopData({ data: parsed }) || parsed;
+        } catch (e) { /* 不是 JSON 字符串，保持原样 */ }
+      }
       /* 记体结构：这个接口的 data 里都有哪些字段，列表到底叫什么 */
-      if (d && typeof d === 'object') {
+      if (api) {
         const shapes = loadJSON(ctx, BODYSHAPE_KEY) || {};
-        if (api && !shapes[api]) {
-          shapes[api] = { keys: Object.keys(d).slice(0, 12) };
-          const ks = Object.keys(shapes);
-          if (ks.length > 8) delete shapes[ks[0]];
-          saveJSON(ctx, BODYSHAPE_KEY, shapes);
+        if (!shapes[api]) {
+          if (d && typeof d === 'object') {
+            shapes[api] = { keys: Object.keys(d).slice(0, 12) };
+          } else if (d !== null && d !== undefined) {
+            shapes[api] = { type: typeof d };
+          }
+          if (shapes[api]) {
+            const ks = Object.keys(shapes);
+            if (ks.length > 8) delete shapes[ks[0]];
+            saveJSON(ctx, BODYSHAPE_KEY, shapes);
+          }
         }
       }
-      if (Array.isArray(d.packages)) {
-        const pkgs = d.packages.map(trimPackage).filter(Boolean);
+      const list = (d && Array.isArray(d.packages)) ? d.packages
+        : (d && Array.isArray(d.packageList)) ? d.packageList : null;
+      if (list) {
+        const pkgs = list.map(trimPackage).filter(Boolean);
         const withCode = pkgs.filter(p => p.pickupCode).length;
         const sig = pkgs.length + '/' + withCode;
         const prev = loadJSON(ctx, SNAP_KEY);
@@ -485,7 +506,11 @@ async function onSchedule(ctx) {
  * 通知是去重的，报过就不再报，光看“有没有新通知”分不清是没抓到还是
  * 已经抓过了。这个入口就是用来查的：把存储里的现状一次性发出来。 */
 
+/* 接口名太长，显示时去掉 mtop. 前缀和 /1.0 后缀，只留能认出来的部分 */
+function shortApi(a) { return String(a).replace(/^mtop\./, '').replace(/\/1\.0$/, ''); }
+
 async function onStatus(ctx) {
+  /* 第一条：概况。短，横幅里能看全。 */
   const lines = ['版本 ' + PROBE_VERSION];
   const hits = loadJSON(ctx, HITS_KEY);
   if (hits && hits.count > 0) {
@@ -499,18 +524,9 @@ async function onStatus(ctx) {
   const names = Object.keys(cookies);
   lines.push('_m_h5_tk：' + (cookies['_m_h5_tk'] ? '已抓到' : '未抓到')
     + (names.length ? '（已存 ' + names.join('、') + '）' : '（未存 cookie）'));
-  const apis = loadJSON(ctx, APIS_KEY) || {};
-  const topApis = Object.keys(apis).sort((a, b) => apis[b] - apis[a]).slice(0, 4);
-  if (topApis.length) {
-    lines.push('接口：' + topApis.map(a => a + '(' + apis[a] + ')').join('、'));
-  }
-  const shapes = loadJSON(ctx, BODYSHAPE_KEY) || {};
-  const shapeKeys = Object.keys(shapes);
-  if (shapeKeys.length) {
-    for (const k of shapeKeys.slice(0, 3)) {
-      lines.push('体结构 ' + k + '：data 有 ' + shapes[k].keys.join('、'));
-    }
-  }
+  const reads = loadJSON(ctx, BODYREADS_KEY) || { count: 0, lastApi: '' };
+  lines.push('已读响应体：' + reads.count + ' 次'
+    + (reads.lastApi ? '（最近 ' + shortApi(reads.lastApi) + '）' : ''));
   const snap = loadJSON(ctx, SNAP_KEY);
   if (snap && snap.count > 0) {
     lines.push('包裹快照：' + snap.count + ' 个，其中 ' + (snap.withCode || 0) + ' 个有取件码');
@@ -520,6 +536,31 @@ async function onStatus(ctx) {
   const check = loadJSON(ctx, CHECK_KEY) || {};
   if (check.last) lines.push('上次定时检查：' + String(check.last).slice(0, 40));
   notify(ctx, '探针状态', lines.join('\n'));
+
+  /* 第二条：接口与体结构。单发一条，免得被系统截断。 */
+  const lines2 = [];
+  const apis = loadJSON(ctx, APIS_KEY) || {};
+  const topApis = Object.keys(apis).sort((a, b) => apis[b] - apis[a]).slice(0, 4);
+  if (topApis.length) {
+    lines2.push('接口：' + topApis.map(a => shortApi(a) + '(' + apis[a] + ')').join('、'));
+  } else {
+    lines2.push('接口：还没记到');
+  }
+  const shapes = loadJSON(ctx, BODYSHAPE_KEY) || {};
+  const shapeKeys = Object.keys(shapes);
+  if (shapeKeys.length) {
+    for (const k of shapeKeys.slice(0, 3)) {
+      const s = shapes[k];
+      if (s.keys) {
+        lines2.push('体结构 ' + shortApi(k) + '：data 有 ' + (s.keys.length ? s.keys.join('、') : '（空对象）'));
+      } else if (s.type) {
+        lines2.push('体结构 ' + shortApi(k) + '：data 是 ' + s.type + '，不是对象');
+      }
+    }
+  } else {
+    lines2.push('体结构：还没记到');
+  }
+  notify(ctx, '探针状态·接口', lines2.join('\n'));
 }
 
 /* ---------------- 入口 ---------------- */
