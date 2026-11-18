@@ -9,6 +9,9 @@
  *   1) http_response（parcel-probe-capture）：
  *      只读请求头 Cookie 和响应头 Set-Cookie，不读响应体、不改任何请求。
  *      抓到 _m_h5_tk 就存进 ctx.storage，并发一次通知（通知里不带 cookie 值）。
+ *      另外每个域名第一次出现时上报一次它带了哪些 cookie 名（只记名不记值），
+ *      用于诊断小程序/原生 App 用的凭证跟淘宝是不是同一套。
+ *      v2：MITM 与匹配新增 acs.m.taobao.com（淘宝原生 App 的 MTOP 网关）。
  *   2) schedule（parcel-probe-check，每 10 分钟）：
  *      读存下的 cookie，用原 App 同款签名（纯 MD5，appKey 12574478）
  *      调一次菜鸟“我的包裹”接口，把结果发通知：
@@ -34,6 +37,7 @@ const COOKIES_KEY = 'probe.cookies.v1';
 const HITS_KEY = 'probe.hits.v1';
 const NOTED_KEY = 'probe.noted.v1';
 const CHECK_KEY = 'probe.check.v1';
+const NAMES_KEY = 'probe.cookienames.v1';
 
 /* 只存这几个淘宝 cookie，其余一律不碰 */
 const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
@@ -129,6 +133,25 @@ function hostOf(url) {
   try { return new URL(url).hostname; } catch (e) { return ''; }
 }
 
+/* 从 "a=1; b=2" 或 ["a=1; Path=/", ...] 里只取 cookie 名（不记值），用于诊断各域名用哪种凭证。
+ * Set-Cookie 只有第一段是真 cookie，后面是 Path/Domain 之类的属性，firstOnly 时只取第一段。 */
+function cookieNames(values, firstOnly) {
+  const out = [];
+  const list = Array.isArray(values) ? values : (values ? [values] : []);
+  for (const raw of list) {
+    if (!raw) continue;
+    const segments = String(raw).split(';');
+    const parts = firstOnly ? segments.slice(0, 1) : segments;
+    for (const part of parts) {
+      const eq = part.indexOf('=');
+      if (eq <= 0) continue;
+      const name = part.slice(0, eq).trim();
+      if (name && out.indexOf(name) === -1) out.push(name);
+    }
+  }
+  return out;
+}
+
 /* 从 "a=1; b=2" 或 ["a=1; Path=/", "b=2; ..."] 里抠出想要的 cookie */
 function pickCookies(values) {
   const out = {};
@@ -165,15 +188,30 @@ async function onResponse(ctx) {
     notify(ctx, '探针：MITM 生效', '已看到 ' + host + ' 的请求，抓包链路通了');
   }
 
+  /* 诊断：这个域名带了哪些 cookie 名（只记名，不记值）。小程序/原生 App
+   * 可能用淘宝以外的凭证，先看名字再决定存什么。 */
+  let reqCookie = null;
+  let setCookies = [];
+  try { reqCookie = ctx.request.headers.get('cookie'); } catch (e) { /* 忽略 */ }
+  try { setCookies = ctx.response.headers.getAll('set-cookie') || []; } catch (e) { /* 忽略 */ }
+  const reqNames = cookieNames(reqCookie);
+  const seenNames = reqNames.concat(cookieNames(setCookies, true).filter(n => reqNames.indexOf(n) === -1));
+  if (seenNames.length > 0) {
+    const allNames = loadJSON(ctx, NAMES_KEY) || {};
+    if (!allNames[host]) {
+      allNames[host] = seenNames;
+      saveJSON(ctx, NAMES_KEY, allNames);
+      if (!noted(ctx, 'names-' + host)) {
+        notify(ctx, '探针：看到的 cookie 名', host + '：' + seenNames.join('、'));
+      }
+    }
+  } else if (!noted(ctx, 'nocookie-hdr-' + host)) {
+    notify(ctx, '探针：没看到 Cookie 头', host + ' 的请求里没有 Cookie，可能是脚本读不到请求头');
+  }
+
   const found = {};
-  try {
-    const reqCookie = ctx.request.headers.get('cookie');
-    Object.assign(found, pickCookies(reqCookie));
-  } catch (e) { /* 忽略 */ }
-  try {
-    const setCookies = ctx.response.headers.getAll('set-cookie');
-    Object.assign(found, pickCookies(setCookies));
-  } catch (e) { /* 忽略 */ }
+  Object.assign(found, pickCookies(reqCookie));
+  Object.assign(found, pickCookies(setCookies));
 
   const names = Object.keys(found);
   if (names.length === 0) return;
