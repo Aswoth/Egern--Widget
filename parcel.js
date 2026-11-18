@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v7
+ * 包裹助手（Egern 版）v8
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -25,7 +25,7 @@
  *   generic（parcel-status）→ 手动查一次现状
  */
 
-const PARCEL_VERSION = 'v7';
+const PARCEL_VERSION = 'v8';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -1019,7 +1019,7 @@ function parcelRow(p, textMain, textSub) {
         direction: 'column',
         flex: 1,
         gap: 2,
-        alignItems: 'flex-start',
+        alignItems: 'start',
         children: [
           { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, maxLines: 1 },
           { type: 'text', text: sub, font: { size: 10 }, textColor: textSub, maxLines: 1 },
@@ -1166,7 +1166,7 @@ async function renderWidget(ctx) {
     return {
       type: 'widget',
       padding: [10, 14, 8, 14],
-      children: [{ type: 'stack', direction: 'column', gap: 6, alignItems: 'flex-start', children }],
+      children: [{ type: 'stack', direction: 'column', gap: 6, alignItems: 'start', children }],
       refreshAfter,
     };
   }
@@ -1183,7 +1183,7 @@ async function renderWidget(ctx) {
   if (hidden > 0) railChildren.push({ type: 'text', text: '还有 ' + hidden + ' 个', font: { size: 11 }, textColor: textSub });
   railChildren.push({ type: 'text', text: '↻ ' + syncLabel(snap.updatedAt), font: { size: 10 }, textColor: textSub });
   const rail = {
-    type: 'stack', direction: 'column', flex: 1, gap: 2, alignItems: 'flex-start',
+    type: 'stack', direction: 'column', flex: 1, gap: 2, alignItems: 'start',
     children: railChildren,
   };
   const list = {
@@ -1193,7 +1193,7 @@ async function renderWidget(ctx) {
   return {
     type: 'widget',
     padding: [12, 14, 10, 14],
-    children: [{ type: 'stack', direction: 'row', gap: 12, alignItems: family === 'systemMedium' ? 'center' : 'flex-start', children: [rail, list] }],
+    children: [{ type: 'stack', direction: 'row', gap: 12, alignItems: family === 'systemMedium' ? 'center' : 'start', children: [rail, list] }],
     refreshAfter,
   };
 }
