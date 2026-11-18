@@ -29,7 +29,7 @@
  *   列表接口 mtop.cainiao.lpc.packageservice.queryPdsPackageDataList
  */
 
-const PROBE_VERSION = 'v4';
+const PROBE_VERSION = 'v5';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -45,6 +45,8 @@ const NOTED_KEY = 'probe.noted.v1';
 const CHECK_KEY = 'probe.check.v1';
 const NAMES_KEY = 'probe.cookienames.v1';
 const SNAP_KEY = 'probe.parcels.v1';
+const APIS_KEY = 'probe.apis.v1';
+const BODYSHAPE_KEY = 'probe.bodyshape.v1';
 
 /* 只存这几个淘宝 cookie，其余一律不碰 */
 const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
@@ -140,6 +142,19 @@ function hostOf(url) {
   try { return new URL(url).hostname; } catch (e) { return ''; }
 }
 
+/* 从 URL 里抠接口名：优先 api 查询参数，否则取 /h5/ 后面那段 */
+function apiNameOf(url) {
+  try {
+    const u = new URL(url);
+    const q = u.searchParams.get('api');
+    if (q) return q;
+    const m = u.pathname.match(/\/h5\/([^\/]+)/);
+    if (m) return m[1];
+    const segs = u.pathname.split('/').filter(Boolean);
+    return segs.length ? segs.slice(-2).join('/') : u.pathname;
+  } catch (e) { return ''; }
+}
+
 /* 从 "a=1; b=2" 或 ["a=1; Path=/", ...] 里只取 cookie 名（不记值），用于诊断各域名用哪种凭证。
  * Set-Cookie 只有第一段是真 cookie，后面是 Path/Domain 之类的属性，firstOnly 时只取第一段。 */
 function cookieNames(values, firstOnly) {
@@ -189,6 +204,16 @@ async function onResponse(ctx) {
   if (!hits.firstAt) hits.firstAt = now;
   hits.lastAt = now;
   saveJSON(ctx, HITS_KEY, hits);
+
+  /* 记接口名：看看到底调了哪些接口，列表接口叫什么 */
+  const api = apiNameOf(url);
+  if (api) {
+    const apis = loadJSON(ctx, APIS_KEY) || {};
+    if (apis[api] !== undefined || Object.keys(apis).length < 30) {
+      apis[api] = (apis[api] || 0) + 1;
+      saveJSON(ctx, APIS_KEY, apis);
+    }
+  }
 
   /* 第一次有请求穿过脚本 = MITM 对这个域名生效了 */
   if (!noted(ctx, 'mitm-ok')) {
@@ -242,6 +267,16 @@ async function onResponse(ctx) {
     const data = await ctx.response.json();
     if (data && typeof data === 'object') {
       const d = data.data || {};
+      /* 记体结构：这个接口的 data 里都有哪些字段，列表到底叫什么 */
+      if (d && typeof d === 'object') {
+        const shapes = loadJSON(ctx, BODYSHAPE_KEY) || {};
+        if (api && !shapes[api]) {
+          shapes[api] = { keys: Object.keys(d).slice(0, 12) };
+          const ks = Object.keys(shapes);
+          if (ks.length > 8) delete shapes[ks[0]];
+          saveJSON(ctx, BODYSHAPE_KEY, shapes);
+        }
+      }
       if (Array.isArray(d.packages)) {
         const pkgs = d.packages.map(trimPackage).filter(Boolean);
         const withCode = pkgs.filter(p => p.pickupCode).length;
@@ -358,6 +393,8 @@ async function onSchedule(ctx) {
 
   /* 抓包那边已经抓到了，但定时脚本读不到 = 存储不互通 */
   if (!cookies['_m_h5_tk']) {
+    check.last = '无 _m_h5_tk，等待抓包';
+    saveJSON(ctx, CHECK_KEY, check);
     if (loadJSON(ctx, NOTED_KEY) && loadJSON(ctx, NOTED_KEY)['tk-ok']) {
       if (!noted(ctx, 'storage-split')) {
         notify(ctx, '探针：存储不互通', '抓包脚本存的 cookie，定时脚本读不到；换种写法再试');
@@ -443,6 +480,18 @@ async function onStatus(ctx) {
   const names = Object.keys(cookies);
   lines.push('_m_h5_tk：' + (cookies['_m_h5_tk'] ? '已抓到' : '未抓到')
     + (names.length ? '（已存 ' + names.join('、') + '）' : '（未存 cookie）'));
+  const apis = loadJSON(ctx, APIS_KEY) || {};
+  const topApis = Object.keys(apis).sort((a, b) => apis[b] - apis[a]).slice(0, 4);
+  if (topApis.length) {
+    lines.push('接口：' + topApis.map(a => a + '(' + apis[a] + ')').join('、'));
+  }
+  const shapes = loadJSON(ctx, BODYSHAPE_KEY) || {};
+  const shapeKeys = Object.keys(shapes);
+  if (shapeKeys.length) {
+    for (const k of shapeKeys.slice(0, 3)) {
+      lines.push('体结构 ' + k + '：data 有 ' + shapes[k].keys.join('、'));
+    }
+  }
   const snap = loadJSON(ctx, SNAP_KEY);
   if (snap && snap.count > 0) {
     lines.push('包裹快照：' + snap.count + ' 个，其中 ' + (snap.withCode || 0) + ' 个有取件码');
