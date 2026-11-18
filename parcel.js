@@ -1,0 +1,929 @@
+/**
+ * 包裹助手（Egern 版）v1
+ *
+ * 数据来源（按优先级）：
+ *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
+ *      “我的包裹”，响应脚本直接读列表响应体存快照——不用登录凭证、
+ *      不用手动填单号，到站就有取件码。
+ *   2) MTOP 轮询（后台自动刷新）：需要淘宝登录凭证 _m_h5_tk。
+ *      凭证抓取默认关闭（模块设置里的“抓取登录凭证”开关），打开后
+ *      刷淘宝/菜鸟时存下凭证，定时脚本每 30 分钟调一次菜鸟接口；
+ *      抓到一次后可以再把开关关掉——关掉就不再存任何凭证。
+ *   3) 快递鸟 8001（可选补充）：填了密钥和运单号才能用，给没有菜鸟
+ *      列表的单号查详细轨迹。
+ *
+ * 快照统一形状：{ no, title, company, code, station, status, statusText,
+ *   latest, arrivedAt, updatedAt }，status 是家族：arrived / delivered /
+ *   transit / none。小组件与通知都只认这个形状。
+ *
+ * 入口（同一个文件）：
+ *   http_response（parcel-capture）→ 读列表体 +（开关开时）存凭证
+ *   schedule（parcel-refresh）→ MTOP 轮询，失败则快递鸟
+ *   generic（parcel-widget）→ 小组件
+ *   generic（parcel-status）→ 手动查一次现状
+ */
+
+const PARCEL_VERSION = 'v1';
+
+const APP_KEY = '12574478';
+const MTOP_HOST = 'https://h5api.m.taobao.com';
+const MTOP_LIST_API = 'mtop.cainiao.lpc.packageservice.queryPdsPackageDataList';
+const REFRESH_URL = 'https://h5.m.taobao.com/';
+const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+const REFERER = 'https://h5.m.taobao.com/';
+const NEED_DYN = "{'needFindTemporality':true,'needAppointment':true}";
+
+const QUERY_URL = 'https://api.kdniao.com/Ebusiness/EbusinessOrderHandle.aspx';
+const AUTONUM_URL = 'https://www.kuaidi100.com/autonumber/autoComNum?resultv2=1&text=';
+const KD100_UA = UA;
+
+const SNAP_KEY = 'parcel.snapshot.v1';
+const COOKIES_KEY = 'parcel.cookies.v1';
+const CHECK_KEY = 'parcel.check.v1';
+const SHIPPER_KEY = 'parcel.shippers.v1';
+const FLAG_KEY = 'parcel.flags.v1';
+const SNAP_TTL_MS = 30 * 60 * 1000;
+
+const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
+
+/* 状态判定（原 Scripting 版 model.ts / kdniao.ts 的正则） */
+const DELIVERED_RE = /签收|已签收|已送达|已取件|已领取|已投递/;
+const PICKABLE = /待取件|已到站|已暂存|已存放|已放入|已代收|送达代收点|请及时取|请及时领取|凭取件码|待领取|已签收|已妥收|快递柜|驿站|代收点/;
+const TRANSIT_ONLY = /转运中心|分拨中心|集散中心|运转中心|发往|已发出|正在派送|派件中|揽收|已到达[^，。]*中心/;
+
+/* ---------------- MD5（纯 JS，RFC 1321） ---------------- */
+
+function md5Hex(input) {
+  function rl(n, c) { return (n << c) | (n >>> (32 - c)); }
+  function add(x, y) {
+    const l = (x & 0xffff) + (y & 0xffff);
+    const m = (x >> 16) + (y >> 16) + (l >> 16);
+    return (m << 16) | (l & 0xffff);
+  }
+  const K = [
+    0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+    0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+    0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+    0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+    0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+    0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+    0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+    0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391,
+  ];
+  const S = [
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21,
+  ];
+  const bytes = [];
+  for (let i = 0; i < input.length; i++) {
+    const c = input.charCodeAt(i);
+    if (c < 0x80) bytes.push(c);
+    else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    else if (c >= 0xd800 && c < 0xdc00) {
+      const c2 = input.charCodeAt(++i);
+      const cp = 0x10000 + ((c - 0xd800) << 10) + (c2 - 0xdc00);
+      bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+    } else bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+  }
+  const bitLen = bytes.length * 8;
+  bytes.push(0x80);
+  while (bytes.length % 64 !== 56) bytes.push(0);
+  for (let i = 0; i < 8; i++) bytes.push(Math.floor(bitLen / Math.pow(2, i * 8)) & 0xff);
+  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+  for (let off = 0; off < bytes.length; off += 64) {
+    const M = [];
+    for (let i = 0; i < 16; i++) {
+      M.push(bytes[off + i * 4] | (bytes[off + i * 4 + 1] << 8) | (bytes[off + i * 4 + 2] << 16) | (bytes[off + i * 4 + 3] << 24));
+    }
+    let a = a0, b = b0, c = c0, d = d0;
+    for (let i = 0; i < 64; i++) {
+      let f, g;
+      if (i < 16) { f = (b & c) | (~b & d); g = i; }
+      else if (i < 32) { f = (d & b) | (~d & c); g = (5 * i + 1) % 16; }
+      else if (i < 48) { f = b ^ c ^ d; g = (3 * i + 5) % 16; }
+      else { f = c ^ (b | ~d); g = (7 * i) % 16; }
+      const tmp = d;
+      d = c;
+      c = b;
+      b = add(b, rl(add(add(a, f), add(K[i], M[g])), S[i]));
+      a = tmp;
+    }
+    a0 = add(a0, a); b0 = add(b0, b); c0 = add(c0, c); d0 = add(d0, d);
+  }
+  function hex(n) {
+    let s = '';
+    for (let i = 0; i < 4; i++) s += ('0' + ((n >> (i * 8)) & 0xff).toString(16)).slice(-2);
+    return s;
+  }
+  return hex(a0) + hex(b0) + hex(c0) + hex(d0);
+}
+
+/* Base64（只对 ASCII 字符串用，DataSign 就是对 MD5 十六进制串做的） */
+function b64Ascii(str) {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let out = '';
+  for (let i = 0; i < str.length; i += 3) {
+    const a = str.charCodeAt(i);
+    const b = i + 1 < str.length ? str.charCodeAt(i + 1) : 0;
+    const c = i + 2 < str.length ? str.charCodeAt(i + 2) : 0;
+    const n = (a << 16) | (b << 8) | c;
+    out += chars[(n >> 18) & 63] + chars[(n >> 12) & 63];
+    out += i + 1 < str.length ? chars[(n >> 6) & 63] : '=';
+    out += i + 2 < str.length ? chars[n & 63] : '=';
+  }
+  return out;
+}
+
+/* 快递鸟签名：DataSign = urlencode(base64(md5(RequestData + AppKey) 的小写十六进制串)) */
+function kdniaoSign(requestData, appKey) {
+  return encodeURIComponent(b64Ascii(md5Hex(requestData + appKey)));
+}
+
+/* ---------------- 小工具 ---------------- */
+
+function loadJSON(ctx, key) {
+  try { return ctx.storage.getJSON(key); } catch (e) { return null; }
+}
+function saveJSON(ctx, key, val) {
+  try { ctx.storage.setJSON(key, val); } catch (e) { /* 忽略 */ }
+}
+function notify(ctx, title, body) {
+  try { ctx.notify({ title, body }); } catch (e) { /* 忽略 */ }
+}
+function flagSet(ctx, flag) {
+  const f = loadJSON(ctx, FLAG_KEY) || {};
+  if (f[flag]) return true;
+  f[flag] = 1;
+  saveJSON(ctx, FLAG_KEY, f);
+  return false;
+}
+/* 抓取登录凭证的开关：env_schema 里 options ["true","false"] 生成 Toggle，
+ * 没碰过开关时 env 里没有这个键，默认关。值是字符串 "true"/"false"。 */
+function cookieCaptureOn(ctx) {
+  const v = (ctx.env || {}).ENABLE_COOKIE_CAPTURE;
+  return v === true || String(v).toLowerCase() === 'true';
+}
+
+/* 从 "a=1; b=2" 或 ["a=1; Path=/", ...] 里抠出想要的 cookie（只记值，不记无关项） */
+function pickCookies(values) {
+  const out = {};
+  const list = Array.isArray(values) ? values : (values ? [values] : []);
+  for (const raw of list) {
+    if (!raw) continue;
+    for (const part of String(raw).split(';')) {
+      const eq = part.indexOf('=');
+      if (eq <= 0) continue;
+      const name = part.slice(0, eq).trim();
+      const value = part.slice(eq + 1).trim();
+      if (WANT_COOKIES.indexOf(name) !== -1 && value) out[name] = value;
+    }
+  }
+  return out;
+}
+function tokenOf(cookies) {
+  const v = cookies['_m_h5_tk'] || '';
+  return String(v).split('_')[0];
+}
+function cookieHeader(cookies) {
+  return Object.keys(cookies).map(k => k + '=' + cookies[k]).join('; ');
+}
+
+/* ---------------- 菜鸟列表解析（探针 v6/v10 已验证） ---------------- */
+
+const CODE_PLACEHOLDER = ['needsms', 'need_sms', '-1', '0', '', 'null', 'none'];
+function pickStr(o) {
+  if (!o || typeof o !== 'object') return '';
+  for (let i = 1; i < arguments.length; i++) {
+    const v = o[arguments[i]];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+/* 原 App mtop.ts 的 mtopData：响应可能是 data.data 双层包 */
+function mtopData(j) {
+  const d = j && j.data;
+  if (d && typeof d === 'object' && d.data !== undefined) return d.data;
+  return d || null;
+}
+/* 在响应里找包裹数组：原版是 data.packages，小程序 lightapp 是
+ * data.result（对象里再套 packages/packageList/list，或直接就是数组）。 */
+function findList(d) {
+  if (!d || typeof d !== 'object') return null;
+  if (Array.isArray(d.packages)) return d.packages;
+  if (Array.isArray(d.packageList)) return d.packageList;
+  const r = d.result;
+  if (Array.isArray(r)) return r;
+  if (r && typeof r === 'object') {
+    if (Array.isArray(r.packages)) return r.packages;
+    if (Array.isArray(r.packageList)) return r.packageList;
+    if (Array.isArray(r.list)) return r.list;
+    if (Array.isArray(r.items)) return r.items;
+  }
+  if (Array.isArray(d.list)) return d.list;
+  if (Array.isArray(d.items)) return d.items;
+  return null;
+}
+/* 状态文案 → 家族。原 App 的状态码：SIGN/CANCEL/REJECT/RETURN/LOST 都是已完结，
+ * PICKUP 是待取；中文文案走正则。 */
+function familyOf(raw, code) {
+  const s = String(raw || '');
+  if (DELIVERED_RE.test(s)) return 'delivered';
+  if (/^(SIGN|CANCEL|REJECT|RETURN|LOST)$/i.test(s.trim())) return 'delivered';
+  if (/PICKUP/i.test(s)) return 'arrived';
+  if (PICKABLE.test(s)) return 'arrived';
+  if (code) return 'arrived';
+  return s ? 'transit' : 'none';
+}
+/* 菜鸟一条包裹 → 统一快照形状（取件码取法与原 App cainiao.ts 的 pickupCodeOf 一致） */
+function trimPackage(p) {
+  if (!p || typeof p !== 'object') return null;
+  const st = p.packageStation || {};
+  const feat = p.feature || {};
+  const items = Array.isArray(p.packageItem) ? p.packageItem : [];
+  let code = pickStr(st, 'authCode', 'auth_code');
+  if (!code || CODE_PLACEHOLDER.indexOf(code.toLowerCase()) !== -1) {
+    const alt = pickStr(st, 'showPickupCode', 'show_pickup_code', 'pickUpCode', 'pickupCode');
+    code = (alt && alt.toLowerCase() !== 'true' && alt.toLowerCase() !== 'false')
+      ? alt : pickStr(feat, 'stationOrderPickUpCode', 'station_order_pick_up_code');
+  }
+  if (code && CODE_PLACEHOLDER.indexOf(code.toLowerCase()) !== -1) code = '';
+  const first = items[0] || {};
+  const rawStatus = pickStr(p, 'status', 'statusDesc', 'packageStatus');
+  const station = pickStr(st, 'pointName', 'point_name', 'stationName', 'name');
+  return {
+    no: pickStr(p, 'mailNo', 'mail_no'),
+    title: pickStr(feat, 'recommendPackageTitle', 'recommend_package_title')
+      || pickStr(p, 'userRemark')
+      || pickStr(first, 'itemTitle', 'item_title'),
+    company: pickStr(p, 'cpName', 'cp_name', 'companyName') || pickStr(p, 'cpCode', 'cp_code'),
+    code: code,
+    station: station,
+    status: familyOf(rawStatus, code),
+    statusText: rawStatus,
+    latest: (station ? station + ' · ' : '') + (rawStatus || '在途'),
+    arrivedAt: 0,
+    updatedAt: Date.now(),
+  };
+}
+function stateOfParcel(p) {
+  if (!p) return 'none';
+  if (p.status === 'delivered') return 'delivered';
+  if (p.status === 'arrived') return 'arrived';
+  if (p.arrivedAt) return 'arrived';
+  if (p.code) return 'arrived';
+  return p.status === 'none' ? 'none' : 'transit';
+}
+/* 新列表并进快照：取件码和到站时间沿用旧的，不丢 */
+function mergeSnapshot(prevSnap, freshParcels) {
+  const prevByNo = {};
+  ((prevSnap && prevSnap.parcels) || []).forEach(p => { prevByNo[p.no] = p; });
+  const parcels = freshParcels.map(p => {
+    const prev = prevByNo[p.no] || {};
+    const arrived = stateOfParcel(p) === 'arrived';
+    return Object.assign({}, p, {
+      code: p.code || prev.code || '',
+      arrivedAt: arrived ? (prev.arrivedAt || Date.now()) : (prev.arrivedAt || 0),
+    });
+  });
+  const withCode = parcels.filter(p => p.code).length;
+  return {
+    at: Date.now(), updatedAt: Date.now(),
+    count: parcels.length, withCode: withCode,
+    sig: parcels.length + '/' + withCode, parcels: parcels,
+  };
+}
+/* 对照旧快照，只报到站/签收的变化。第一次快照是基线，不报（免得 5 个已签收的一起刷屏）。 */
+function notifyTransitions(ctx, prevSnap, snap) {
+  if (!prevSnap || !prevSnap.updatedAt) return;
+  const prevByNo = {};
+  (prevSnap.parcels || []).forEach(p => { prevByNo[p.no] = p; });
+  snap.parcels.forEach(p => {
+    const prev = prevByNo[p.no];
+    const prevState = prev ? stateOfParcel(prev) : 'none';
+    const nowState = stateOfParcel(p);
+    if (prevState === nowState) return;
+    if (nowState === 'arrived') {
+      notify(ctx, '包裹到站可取', (p.title || p.no) + (p.code ? '，取件码 ' + p.code : '') + (p.latest ? '\n' + p.latest : ''));
+    } else if (nowState === 'delivered') {
+      notify(ctx, '包裹已签收', (p.title || p.no) + (p.latest ? '\n' + p.latest : ''));
+    }
+  });
+}
+
+/* ---------------- 体捕获入口（http_response） ---------------- */
+
+async function onCapture(ctx) {
+  /* 开关开时才存凭证；关着就不碰 Cookie 头 */
+  if (cookieCaptureOn(ctx)) {
+    let reqCookie = null;
+    let setCookies = [];
+    try { reqCookie = ctx.request.headers.get('cookie'); } catch (e) { /* 忽略 */ }
+    try { setCookies = ctx.response.headers.getAll('set-cookie') || []; } catch (e) { /* 忽略 */ }
+    const found = {};
+    Object.assign(found, pickCookies(reqCookie));
+    Object.assign(found, pickCookies(setCookies));
+    const names = Object.keys(found);
+    if (names.length) {
+      const stored = loadJSON(ctx, COOKIES_KEY) || {};
+      let changed = false;
+      for (const k of names) {
+        if (stored[k] !== found[k]) { stored[k] = found[k]; changed = true; }
+      }
+      if (changed) {
+        saveJSON(ctx, COOKIES_KEY, stored);
+        if (found['_m_h5_tk'] && !flagSet(ctx, 'tk-noted')) {
+          notify(ctx, '已抓到登录凭证', '后台自动刷新已就绪；不想继续抓了，可以把“抓取登录凭证”开关关掉');
+        }
+      }
+    }
+  }
+
+  /* 读响应体里的包裹列表（body_required 的入口才有 body，没 body 就透传）。
+   * 读到 body 就原样返回，不改内容。 */
+  let data = null;
+  try {
+    data = await ctx.response.json();
+  } catch (e) {
+    return undefined;
+  }
+  if (data && typeof data === 'object') {
+    let d = mtopData(data);
+    /* 有的接口（小程序的 lightapp 列表）把 data 包成 JSON 字符串 */
+    if (typeof d === 'string') {
+      try {
+        const parsed = JSON.parse(d);
+        if (parsed && typeof parsed === 'object') d = mtopData({ data: parsed }) || parsed;
+      } catch (e) { /* 不是 JSON 字符串，保持原样 */ }
+    }
+    const list = findList(d);
+    if (list) {
+      const fresh = list.map(trimPackage).filter(Boolean);
+      const prevSnap = loadJSON(ctx, SNAP_KEY);
+      const snap = mergeSnapshot(prevSnap, fresh);
+      saveJSON(ctx, SNAP_KEY, snap);
+      notifyTransitions(ctx, prevSnap, snap);
+    }
+    return { body: data };
+  }
+  return undefined;
+}
+
+/* ---------------- MTOP 轮询（后台自动刷新） ---------------- */
+
+function retOf(j, txt) {
+  if (j && Array.isArray(j.ret)) return j.ret.join(';');
+  if (j && typeof j.ret === 'string') return j.ret;
+  if (j && j.ret) return String(j.ret);
+  return (txt || '').slice(0, 80) || '无响应';
+}
+
+async function mtopList(ctx, cookies) {
+  const data = JSON.stringify({
+    pageSize: 50, currentPage: 1,
+    needTemporality: false, needDynInfo: NEED_DYN,
+  });
+  const t = Date.now();
+  const sign = md5Hex(tokenOf(cookies) + '&' + t + '&' + APP_KEY + '&' + data);
+  const url = MTOP_HOST + '/h5/' + MTOP_LIST_API.toLowerCase() + '/1.0/'
+    + '?jsv=2.7.4&appKey=' + APP_KEY + '&t=' + t + '&sign=' + sign
+    + '&api=' + encodeURIComponent(MTOP_LIST_API) + '&v=1.0&type=originaljson&dataType=json'
+    + '&data=' + encodeURIComponent(data);
+  const res = await ctx.http.get(url, {
+    headers: { Cookie: cookieHeader(cookies), 'User-Agent': UA, Referer: REFERER, Accept: 'application/json' },
+    timeout: 15000,
+  });
+  const txt = await res.text();
+  let j = null;
+  try { j = JSON.parse(txt); } catch (e) { /* 不是 JSON */ }
+  return { res, txt, j };
+}
+
+async function refreshToken(ctx, cookies) {
+  const res = await ctx.http.get(REFRESH_URL, {
+    headers: { Cookie: cookieHeader(cookies), 'User-Agent': UA, Referer: REFERER },
+    timeout: 15000,
+  });
+  await res.text().catch(() => '');
+  let setCookies = [];
+  try { setCookies = res.headers.getAll('set-cookie') || []; } catch (e) { /* 忽略 */ }
+  const fresh = pickCookies(setCookies);
+  if (fresh['_m_h5_tk']) {
+    const merged = Object.assign({}, cookies, fresh);
+    saveJSON(ctx, COOKIES_KEY, merged);
+    return merged;
+  }
+  return null;
+}
+
+/* 调一次 MTOP 列表，成功返回快照，失败返回 { error }。ret 变化才报通知。 */
+async function pollMtop(ctx) {
+  const cookies = loadJSON(ctx, COOKIES_KEY) || {};
+  if (!cookies['_m_h5_tk']) return { error: 'nocookie' };
+  let r;
+  try {
+    r = await mtopList(ctx, cookies);
+  } catch (e) {
+    return { error: '请求失败：' + String((e && e.message) || e).slice(0, 60) };
+  }
+  let ret = retOf(r.j, r.txt);
+  const upper = ret.toUpperCase();
+  if (upper.indexOf('SUCCESS') === -1
+      && (upper.indexOf('TOKEN_EXPIRED') !== -1 || upper.indexOf('TOKEN_EXOIRED') !== -1
+      || upper.indexOf('TOKEN_EMPTY') !== -1 || upper.indexOf('FAIL_SYS_TOKEN') !== -1)) {
+    try {
+      const fresh = await refreshToken(ctx, cookies);
+      if (fresh) {
+        const r2 = await mtopList(ctx, fresh);
+        const ret2 = retOf(r2.j, r2.txt);
+        if (ret2.toUpperCase().indexOf('SUCCESS') !== -1) {
+          r = r2;
+          ret = ret2;
+        } else {
+          ret = ret2;
+        }
+      }
+    } catch (e) { /* 刷新失败，走下面的失败分支 */ }
+  }
+  if (ret.toUpperCase().indexOf('SUCCESS') !== -1) {
+    const list = findList(mtopData(r.j));
+    const fresh = (list || []).map(trimPackage).filter(Boolean);
+    const prevSnap = loadJSON(ctx, SNAP_KEY);
+    const snap = mergeSnapshot(prevSnap, fresh);
+    saveJSON(ctx, SNAP_KEY, snap);
+    notifyTransitions(ctx, prevSnap, snap);
+    return { ok: true, count: snap.count };
+  }
+  return { error: '菜鸟接口返回：' + ret.slice(0, 60) };
+}
+
+/* ---------------- 定时脚本 ---------------- */
+
+async function onSchedule(ctx) {
+  const env = ctx.env || {};
+  const check = loadJSON(ctx, CHECK_KEY) || {};
+
+  /* 开关开 + 有凭证 → MTOP 后台轮询 */
+  if (cookieCaptureOn(ctx)) {
+    const cookies = loadJSON(ctx, COOKIES_KEY) || {};
+    if (!cookies['_m_h5_tk']) {
+      if (!flagSet(ctx, 'nocookie-noted')) {
+        notify(ctx, '后台刷新还没凭证', '去淘宝 App 点一次订单 → 查看物流（H5），抓到登录凭证后即可后台自动刷新；不想用了就把开关关掉');
+      }
+      return;
+    }
+    const r = await pollMtop(ctx);
+    if (r.ok) {
+      if (check.last !== 'ok') {
+        check.last = 'ok';
+        saveJSON(ctx, CHECK_KEY, check);
+        notify(ctx, '后台刷新已调通', '菜鸟“我的包裹”返回 ' + r.count + ' 个包裹');
+      }
+      return;
+    }
+    if (r.error === 'nocookie') return;
+    const msg = r.error;
+    if (check.last !== msg) {
+      check.last = msg;
+      saveJSON(ctx, CHECK_KEY, check);
+      notify(ctx, '后台刷新失败', msg);
+    }
+    return;
+  }
+
+  /* 开关关着 → 快递鸟兜底（填了密钥和运单号才跑；没填就不打扰） */
+  if (env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY && env.TRACKINGS) {
+    const prevSnap = loadJSON(ctx, SNAP_KEY) || { parcels: [] };
+    const prevByNo = {};
+    prevSnap.parcels.forEach((p) => { prevByNo[p.no] = p; });
+    const snap = await refreshKdniao(ctx, env, prevByNo);
+    const merged = mergeSnapshot(prevSnap, snap.parcels);
+    saveJSON(ctx, SNAP_KEY, merged);
+    notifyTransitions(ctx, prevSnap, merged);
+  }
+}
+
+/* ---------------- 快递鸟 8001（可选补充） ---------------- */
+
+const COM2SHIPPER = {
+  zhongtong: 'ZTO', zto: 'ZTO', yunda: 'YUNDA', yto: 'YTO', yuantong: 'YTO',
+  sto: 'STO', shentong: 'STO', shunfeng: 'SF', sf: 'SF', jd: 'JD',
+  jtexpress: 'JT', jt: 'JT', youzhengguonei: 'YZPY', ems: 'EMS',
+  youshu: 'YS', debang: 'DBWL', bestex: 'HTKY', bestexpress: 'HTKY',
+  zhaijisong: 'ZJS', tiantian: 'TTKDEX', guotong: 'GTO',
+};
+const KNOWN_SHIPPERS = new Set(Object.values(COM2SHIPPER));
+const CODE_KEYWORDS = ['取件码', '取货码', '取件号', '取件密码', '提货码', '取货密码', '取件凭证', '领件码', '包裹码', '柜机码', '取件口令'];
+
+/* 一行一个：运单号|备注 或 运单号|公司代码|备注；多条用换行或分号隔开 */
+function parseTrackings(raw) {
+  const out = [];
+  if (!raw) return out;
+  String(raw).split(/[\r\n;；]+/).forEach((line) => {
+    const t = line.trim();
+    if (!t) return;
+    const parts = t.split(/[|,，]/).map((s) => s.trim()).filter(Boolean);
+    if (!parts.length) return;
+    const no = parts[0].replace(/\s+/g, '');
+    let shipper = '';
+    let title = '';
+    if (parts.length >= 3) {
+      shipper = parts[1].toUpperCase();
+      title = parts.slice(2).join(' ');
+    } else if (parts.length === 2) {
+      if (KNOWN_SHIPPERS.has(parts[1].toUpperCase())) shipper = parts[1].toUpperCase();
+      else title = parts[1];
+    }
+    out.push({ no, shipper, title });
+  });
+  return out;
+}
+
+function parseTrackTime(s) {
+  if (!s) return 0;
+  const m = /(\d{4})-(\d{1,2})-(\d{1,2})[\sT](\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(String(s));
+  if (!m) return 0;
+  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime();
+}
+
+/* 轨迹里最新一条「可取件」节点的时间（中转节点跳过） */
+function arrivedAtOf(nodes) {
+  let best = 0;
+  (nodes || []).forEach((n) => {
+    const t = String(n.text || '');
+    if (!PICKABLE.test(t)) return;
+    if (TRANSIT_ONLY.test(t)) return;
+    const at = parseTrackTime(n.time);
+    if (at > best) best = at;
+  });
+  return best > 0 ? best : 0;
+}
+
+function looksLikeMobile(s) {
+  return /^1[3-9]\d{9}$/.test(s.replace(/[\s-]/g, ''));
+}
+
+/* 从一段轨迹文案里取取件码（原 App pickupCode.ts 的打分逻辑简化版） */
+function pickupCodeInText(text) {
+  const src = String(text || '');
+  if (!src) return '';
+  const hits = [];
+  CODE_KEYWORDS.forEach((kw) => {
+    let idx = src.indexOf(kw);
+    while (idx >= 0) {
+      const after = src.slice(idx + kw.length, idx + kw.length + 20);
+      const m = /^[^0-9A-Za-z]{0,6}/.exec(after);
+      const rest = after.slice(m ? m[0].length : 0);
+      const cm = /([0-9A-Za-z][0-9A-Za-z-]*)/.exec(rest);
+      if (cm && cm[1]) {
+        const raw = cm[1].replace(/[-\s]+$/, '').trim();
+        let ok = true;
+        let score = 1;
+        if (raw.length < 3 || raw.length > 20) ok = false;
+        if (looksLikeMobile(raw)) ok = false;
+        if (/^(19|20)\d{2}(-\d{1,2})?$/.test(raw)) ok = false;
+        if (/验证码|校验码|短信验证|支付密码|付款码|动态密码/.test(src)) ok = false;
+        if (ok) {
+          if (/^\d{1,3}-\d{1,3}-\d{1,4}$/.test(raw)) score += 3;
+          if (/^[A-Z]{1,3}\d{4,10}$/.test(raw)) score += 2;
+          if (/^[A-Z]-\d{1,2}-\d{3,4}$/.test(raw)) score += 3;
+          if ((raw.match(/-/g) || []).length >= 1 && raw.length <= 12) score += 1;
+          if (/^\d{6}$/.test(raw)) score -= 1;
+          hits.push({ raw, score });
+        }
+      }
+      idx = src.indexOf(kw, idx + kw.length);
+    }
+  });
+  if (!hits.length) return '';
+  hits.sort((a, b) => b.score - a.score);
+  return hits[0].raw;
+}
+
+function extractPickupCode(nodes) {
+  for (let i = (nodes || []).length - 1; i >= 0; i--) {
+    const c = pickupCodeInText(nodes[i].text || '');
+    if (c) return c;
+  }
+  return '';
+}
+
+function flattenStation(v, depth) {
+  if (v == null || depth > 4) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number') return String(v);
+  if (Array.isArray(v)) return v.map((x) => flattenStation(x, depth + 1)).filter(Boolean).join(' ');
+  if (typeof v === 'object') {
+    const keys = ['Desc', 'AcceptStation', 'Station', 'Content', 'Text', 'Description', 'Remark'];
+    const parts = [];
+    keys.forEach((k) => { const s = flattenStation(v[k], depth + 1); if (s) parts.push(s); });
+    if (parts.length) return parts.join(' ');
+    Object.keys(v).forEach((k) => { const s = flattenStation(v[k], depth + 1); if (s) parts.push(s); });
+    return parts.join(' ');
+  }
+  return '';
+}
+
+/* 快递公司识别：快递100 公开接口（免 key） */
+async function detectShipper(ctx, no) {
+  const res = await ctx.http.get(AUTONUM_URL + encodeURIComponent(no), {
+    headers: { 'User-Agent': KD100_UA, Referer: 'https://www.kuaidi100.com/', Accept: 'application/json, text/plain, */*' },
+    timeout: 8000,
+  });
+  if (res.status !== 200) throw new Error('快递公司识别失败（HTTP ' + res.status + '）');
+  const json = await res.json();
+  const first = json && Array.isArray(json.auto) ? json.auto[0] : null;
+  const comCode = first && first.comCode ? String(first.comCode) : '';
+  if (!comCode) throw new Error('无法自动识别快递公司，请在运单号后加公司代码，如 ' + no + '|SF');
+  return { shipperCode: COM2SHIPPER[comCode.toLowerCase()] || comCode.toUpperCase(), company: first.name || '' };
+}
+
+/* 快递鸟 8001 即时查询 */
+async function queryKdniao(ctx, env, no, shipperCode, company, phone) {
+  const rd = { LogisticCode: no, ShipperCode: shipperCode };
+  if (phone) rd.CustomerName = phone;
+  const requestData = JSON.stringify(rd);
+  const body =
+    'RequestData=' + encodeURIComponent(requestData) +
+    '&EBusinessID=' + encodeURIComponent(env.KDNIAO_EBUSINESS_ID) +
+    '&RequestType=8001' +
+    '&DataSign=' + kdniaoSign(requestData, env.KDNIAO_APP_KEY) +
+    '&DataType=2';
+  const res = await ctx.http.post(QUERY_URL, {
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': KD100_UA,
+      Referer: QUERY_URL,
+      Accept: 'application/json, text/plain, */*',
+    },
+    body,
+    timeout: 10000,
+  });
+  if (res.status !== 200) throw new Error('快递鸟 HTTP ' + res.status);
+  const json = await res.json();
+  if (!json.Success) {
+    const reason = String(json.Reason || '');
+    if (reason.indexOf('手机尾号不能为空') >= 0) throw new Error('这个单号需要收件人手机号后四位');
+    if (reason.indexOf('手机尾号不正确') >= 0) throw new Error('手机号后四位不正确');
+    if (reason.indexOf('套餐') >= 0) throw new Error('快递鸟账号没有可用套餐');
+    if (reason.indexOf('非法参数') >= 0) throw new Error('快递鸟拒绝了请求，请检查密钥');
+    throw new Error('快递鸟：' + (reason || '查询失败'));
+  }
+  const traces = (json.Traces || []).filter((t) => t && t.AcceptStation);
+  traces.sort((a, b) => String(a.AcceptTime || '').localeCompare(String(b.AcceptTime || '')));
+  const nodes = traces.map((t) => ({
+    time: String(t.AcceptTime || ''),
+    text: flattenStation(t.AcceptStation, 0).replace(/\s+/g, ' ').trim(),
+  })).filter((n) => n.text);
+  const latest = nodes.length ? nodes[nodes.length - 1].text : '';
+  const state = String(json.State || '');
+  const status = state === '3' || DELIVERED_RE.test(latest) ? 'delivered' : (latest ? 'transit' : 'none');
+  return { shipperCode, company: company || shipperCode, state, status, latest, nodes };
+}
+
+/* 查一遍全部运单，返回统一形状的包裹 */
+async function refreshKdniao(ctx, env, prevByNo) {
+  const trackings = parseTrackings(env.TRACKINGS);
+  const phone = String(env.PHONE_LAST4 || '').trim();
+  const shipperCache = loadJSON(ctx, SHIPPER_KEY) || {};
+  const parcels = [];
+  for (const t of trackings) {
+    let shipper = t.shipper;
+    let company = '';
+    try {
+      if (!shipper) {
+        if (shipperCache[t.no]) {
+          shipper = shipperCache[t.no].shipperCode;
+          company = shipperCache[t.no].company || '';
+        } else {
+          const det = await detectShipper(ctx, t.no);
+          shipper = det.shipperCode;
+          company = det.company;
+          shipperCache[t.no] = det;
+        }
+      }
+      const r = await queryKdniao(ctx, env, t.no, shipper, company, phone);
+      const code = extractPickupCode(r.nodes);
+      const arrivedAt = arrivedAtOf(r.nodes);
+      const prev = prevByNo[t.no] || {};
+      const rawStatus = r.latest || '';
+      parcels.push({
+        no: t.no,
+        title: t.title || r.company,
+        company: r.company,
+        code: code || prev.code || '',
+        station: '',
+        status: r.status === 'delivered' ? 'delivered' : ((arrivedAt || code) ? 'arrived' : 'transit'),
+        statusText: rawStatus,
+        latest: rawStatus || '在途',
+        arrivedAt: arrivedAt || prev.arrivedAt || 0,
+        updatedAt: Date.now(),
+      });
+    } catch (e) {
+      const prev = prevByNo[t.no];
+      parcels.push(prev || {
+        no: t.no, title: t.title || t.no, company: '', code: '', station: '',
+        status: 'none', statusText: '', latest: '查询失败：' + String((e && e.message) || e),
+        arrivedAt: 0, updatedAt: Date.now(),
+      });
+    }
+  }
+  saveJSON(ctx, SHIPPER_KEY, shipperCache);
+  return { updatedAt: Date.now(), parcels };
+}
+
+/* ---------------- 小组件脚本 ---------------- */
+
+function syncLabel(ts) {
+  if (!ts) return '尚未同步';
+  const d = new Date(ts);
+  const t = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
+  return sameDay ? t + ' 同步' : (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + t + ' 同步';
+}
+
+function capsule(text, color, big) {
+  return {
+    type: 'stack',
+    direction: 'row',
+    backgroundColor: { light: color + 'E6', dark: color + 'E6' },
+    borderRadius: big ? 8 : 5,
+    padding: big ? [3, 8, 3, 8] : [2, 7, 2, 7],
+    children: [
+      { type: 'text', text, font: { size: big ? 12 : 10, weight: 'bold' }, textColor: '#FFFFFF' },
+    ],
+  };
+}
+
+function parcelRow(p, textMain, textSub) {
+  const st = stateOfParcel(p);
+  const main = st === 'arrived' && p.code ? p.code : (p.title || p.no);
+  const sub = (p.company ? p.company + ' · ' : '') + (p.latest || '暂无轨迹');
+  const tag = st === 'arrived' ? capsule('待取', '#3E9B5F', true)
+    : st === 'delivered' ? capsule('已取', '#8A8A8E', true)
+    : capsule('在途', '#E8894F', true);
+  return {
+    type: 'stack',
+    direction: 'row',
+    alignItems: 'center',
+    children: [
+      {
+        type: 'stack',
+        direction: 'column',
+        flex: 1,
+        children: [
+          { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, maxLines: 1 },
+          { type: 'text', text: sub, font: { size: 10 }, textColor: textSub, maxLines: 1 },
+        ],
+      },
+      tag,
+    ],
+  };
+}
+
+async function renderWidget(ctx) {
+  const env = ctx.env || {};
+  const family = ctx.widgetFamily || 'systemLarge';
+  const textMain = { light: '#1C1C1E', dark: '#F2F2F7' };
+  const textSub = { light: '#8A8A8E', dark: '#98989F' };
+  const refreshAfter = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+  const hint = (body) => ({
+    type: 'widget',
+    padding: [14, 14, 14, 14],
+    children: [{
+      type: 'stack', direction: 'column',
+      children: [
+        { type: 'text', text: '包裹助手', font: { size: 16, weight: 'bold' }, textColor: textMain },
+        { type: 'spacer', length: 6 },
+        { type: 'text', text: body, font: { size: 12 }, textColor: textSub, maxLines: 4 },
+      ],
+    }],
+    refreshAfter,
+  });
+
+  let snap = loadJSON(ctx, SNAP_KEY);
+  const stale = !snap || !Array.isArray(snap.parcels) || Date.now() - (snap.updatedAt || 0) > SNAP_TTL_MS;
+  if (stale) {
+    try {
+      if (cookieCaptureOn(ctx) && (loadJSON(ctx, COOKIES_KEY) || {})['_m_h5_tk']) {
+        const r = await pollMtop(ctx);
+        if (r.ok) snap = loadJSON(ctx, SNAP_KEY);
+      } else if (env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY && env.TRACKINGS) {
+        const prevByNo = {};
+        ((snap && snap.parcels) || []).forEach((p) => { prevByNo[p.no] = p; });
+        const fresh = await refreshKdniao(ctx, env, prevByNo);
+        const merged = mergeSnapshot(snap, fresh.parcels);
+        saveJSON(ctx, SNAP_KEY, merged);
+        snap = merged;
+      }
+    } catch (e) { /* 刷新失败就显示旧快照 */ }
+  }
+  if (!snap || !Array.isArray(snap.parcels) || !snap.parcels.length) {
+    return hint('打开菜鸟 App 或小程序，刷一次“我的包裹”，快照就会出现在这里。');
+  }
+
+  const all = snap.parcels || [];
+  const pending = all.filter((p) => stateOfParcel(p) === 'arrived');
+  const transit = all.filter((p) => stateOfParcel(p) === 'transit' || stateOfParcel(p) === 'none');
+  const statsText = '待取 ' + pending.length + ' · 在途 ' + transit.length + ' · ' + syncLabel(snap.updatedAt);
+
+  if (family === 'accessoryCircular') {
+    return {
+      type: 'widget', padding: 0,
+      children: [{
+        type: 'stack', direction: 'column', alignItems: 'center',
+        children: [
+          { type: 'text', text: pending.length ? '待取 ' + pending.length : '在途 ' + transit.length, font: { size: 13, weight: 'bold' } },
+          { type: 'text', text: '包裹', font: { size: 9 } },
+        ],
+      }],
+      refreshAfter,
+    };
+  }
+  if (family === 'accessoryInline') {
+    return {
+      type: 'widget', padding: 0,
+      children: [{ type: 'text', text: '待取 ' + pending.length + ' · 在途 ' + transit.length, font: { size: 12 } }],
+      refreshAfter,
+    };
+  }
+  if (family && family.indexOf('accessory') === 0) {
+    return {
+      type: 'widget', padding: [4, 8, 4, 8],
+      children: [{
+        type: 'stack', direction: 'column',
+        children: [
+          { type: 'text', text: pending.length ? '待取 ' + pending.length + ' 个包裹' : '暂无待取包裹', font: { size: 13, weight: 'bold' } },
+          { type: 'text', text: pending.length && pending[0].code ? '取件码 ' + pending[0].code : statsText, font: { size: 11 } },
+        ],
+      }],
+      refreshAfter,
+    };
+  }
+
+  const slots = family === 'systemSmall' ? 4 : family === 'systemMedium' ? 6 : 10;
+  const rows = [];
+  pending.slice(0, slots).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
+  transit.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
+
+  const children = [];
+  children.push({
+    type: 'stack', direction: 'row', alignItems: 'center',
+    children: [
+      { type: 'text', text: '包裹助手', font: { size: family === 'systemSmall' ? 14 : 16, weight: 'bold' }, textColor: textMain },
+      { type: 'spacer' },
+      { type: 'text', text: syncLabel(snap.updatedAt), font: { size: 11 }, textColor: textSub },
+    ],
+  });
+  children.push({ type: 'spacer', length: 8 });
+  if (!rows.length) {
+    children.push({ type: 'text', text: '暂无在途或待取包裹', font: { size: 12 }, textColor: textSub });
+  } else {
+    rows.forEach((r, i) => {
+      children.push(r);
+      if (i < rows.length - 1) children.push({ type: 'spacer', length: 6 });
+    });
+  }
+  children.push({ type: 'spacer' });
+  children.push({ type: 'text', text: statsText, font: { size: 10, weight: 'medium' }, textColor: textSub, maxLines: 1 });
+
+  return {
+    type: 'widget',
+    padding: [12, 14, 10, 14],
+    children: [{ type: 'stack', direction: 'column', children }],
+    refreshAfter,
+  };
+}
+
+/* ---------------- 手动状态查询（generic，点运行就报一次现状） ---------------- */
+
+async function onStatus(ctx) {
+  const lines = ['包裹助手 ' + PARCEL_VERSION];
+  lines.push('凭证抓取开关：' + (cookieCaptureOn(ctx) ? '开' : '关'));
+  const cookies = loadJSON(ctx, COOKIES_KEY) || {};
+  lines.push('登录凭证：' + (cookies['_m_h5_tk'] ? '已抓到' : '未抓到')
+    + (Object.keys(cookies).length ? '（已存 ' + Object.keys(cookies).join('、') + '）' : ''));
+  const snap = loadJSON(ctx, SNAP_KEY);
+  if (snap && snap.count > 0) {
+    lines.push('包裹快照：' + snap.count + ' 个，其中 ' + (snap.withCode || 0) + ' 个有取件码（' + syncLabel(snap.updatedAt) + '）');
+  } else {
+    lines.push('包裹快照：无（打开菜鸟刷一次“我的包裹”）');
+  }
+  const check = loadJSON(ctx, CHECK_KEY) || {};
+  if (check.last) lines.push('上次后台刷新：' + String(check.last).slice(0, 40));
+  notify(ctx, '包裹助手状态', lines.join('\n'));
+}
+
+/* ---------------- 入口 ---------------- */
+
+export default async function (ctx) {
+  try {
+    if (ctx && ctx.widgetFamily) return renderWidget(ctx);
+    if (ctx && ctx.response) return onCapture(ctx);
+    if (ctx && ctx.cron !== undefined && ctx.cron !== null) { await onSchedule(ctx); return; }
+    await onStatus(ctx);
+  } catch (e) { /* 模块自己不出错、不挡请求 */ }
+}
