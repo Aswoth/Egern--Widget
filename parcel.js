@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v8
+ * 包裹助手（Egern 版）v9
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -25,7 +25,7 @@
  *   generic（parcel-status）→ 手动查一次现状
  */
 
-const PARCEL_VERSION = 'v8';
+const PARCEL_VERSION = 'v9';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -346,7 +346,7 @@ function trimPackage(p) {
     || pickStr(first, 'itemTitle', 'item_title');
   return {
     no: no,
-    title: cleanTitle(rawTitle) || rawTitle,
+    title: cleanTitle(rawTitle) || String(rawTitle || '').trim(),
     company: carrierName(rawCarrier, no),
     phoneTail: phoneTailOf(p),
     code: code,
@@ -524,10 +524,13 @@ function phoneTailOf(p) {
 /* 显示用标题：有商品名显示商品名（已去冗长，最长 12 字，多了截断）；
  * 没商品名显示“快递公司 · 手机号后四位”，接口里没有手机号后四位时
  * 回落到“快递公司 · 运单号后四位”，不用“尾号”这个词，全号仍在快照里。
- * 没公司名也认不出前缀时才显示全号。 */
+ * 没公司名也认不出前缀时才显示全号。
+ * 注意：标题先 trim 再显示——旧快照里存的标题可能带前导空格（老版本
+ * cleanTitle 去【】前缀时没吃掉后面的空格），不 trim 就会像“ 赫莲娜…”
+ * 这样前面空一格；只含空格的标题按没商品名处理。 */
 function displayTitle(p) {
-  if (p.title) {
-    const t = p.title;
+  const t = String(p.title || '').trim();
+  if (t) {
     return t.length > 12 ? t.slice(0, 12) + '…' : t;
   }
   if (p.no) {
