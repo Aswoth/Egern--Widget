@@ -23,7 +23,7 @@
  *   generic（parcel-status）→ 手动查一次现状
  */
 
-const PARCEL_VERSION = 'v3';
+const PARCEL_VERSION = 'v4';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -902,7 +902,7 @@ async function renderWidget(ctx) {
   const family = ctx.widgetFamily || 'systemLarge';
   const textMain = { light: '#1C1C1E', dark: '#F2F2F7' };
   const textSub = { light: '#8A8A8E', dark: '#98989F' };
-  const refreshAfter = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const refreshAfter = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
   const hint = (body) => ({
     type: 'widget',
