@@ -1,0 +1,25 @@
+name: 包裹抓包探针
+
+description: 测试 Egern 能不能抓到淘宝登录 cookie（_m_h5_tk），为包裹自动读取探路。只读请求头/响应头，不读响应体、不改任何请求；抓到会发通知。测完可删除。
+
+author: pin
+
+icon: shippingbox.fill
+
+mitm:
+  hostnames:
+    - h5api.m.taobao.com
+    - h5.m.taobao.com
+    - "*.cainiao.com"
+
+scriptings:
+  - http_response:
+      name: parcel-probe-capture
+      match: "^https://(h5api\\.m\\.taobao\\.com|h5\\.m\\.taobao\\.com|[^/]*\\.cainiao\\.com)/"
+      script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel-probe.js
+      timeout: 10
+  - schedule:
+      name: parcel-probe-check
+      cron: "*/10 * * * *"
+      script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel-probe.js
+      timeout: 60
