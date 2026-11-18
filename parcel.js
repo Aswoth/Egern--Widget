@@ -23,7 +23,7 @@
  *   generic（parcel-status）→ 手动查一次现状
  */
 
-const PARCEL_VERSION = 'v1';
+const PARCEL_VERSION = 'v2';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -42,6 +42,7 @@ const COOKIES_KEY = 'parcel.cookies.v1';
 const CHECK_KEY = 'parcel.check.v1';
 const SHIPPER_KEY = 'parcel.shippers.v1';
 const FLAG_KEY = 'parcel.flags.v1';
+const NOTED_KEY = 'parcel.noted.v1';
 const SNAP_TTL_MS = 30 * 60 * 1000;
 
 const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
@@ -159,6 +160,15 @@ function flagSet(ctx, flag) {
   saveJSON(ctx, FLAG_KEY, f);
   return false;
 }
+/* 冷却通知：同一件事 ms 内只报一次，过期再报 */
+function notedCooldown(ctx, flag, ms) {
+  const n = loadJSON(ctx, NOTED_KEY) || {};
+  const t = n[flag];
+  if (typeof t === 'number' && Date.now() - t < ms) return true;
+  n[flag] = Date.now();
+  saveJSON(ctx, NOTED_KEY, n);
+  return false;
+}
 /* 抓取登录凭证的开关：env_schema 里 options ["true","false"] 生成 Toggle，
  * 没碰过开关时 env 里没有这个键，默认关。值是字符串 "true"/"false"。 */
 function cookieCaptureOn(ctx) {
@@ -251,6 +261,8 @@ function trimPackage(p) {
   if (code && CODE_PLACEHOLDER.indexOf(code.toLowerCase()) !== -1) code = '';
   const first = items[0] || {};
   const rawStatus = pickStr(p, 'status', 'statusDesc', 'packageStatus');
+  /* 接口有时只给英文状态码，显示时翻成中文 */
+  const statusText = { SIGN: '已签收', PICKUP: '待取件', TRANSIT: '在途', CANCEL: '已取消', REJECT: '已拒收', RETURN: '已退回', LOST: '已丢失' }[rawStatus] || rawStatus;
   const station = pickStr(st, 'pointName', 'point_name', 'stationName', 'name');
   return {
     no: pickStr(p, 'mailNo', 'mail_no'),
@@ -261,8 +273,8 @@ function trimPackage(p) {
     code: code,
     station: station,
     status: familyOf(rawStatus, code),
-    statusText: rawStatus,
-    latest: (station ? station + ' · ' : '') + (rawStatus || '在途'),
+    statusText: statusText,
+    latest: (station ? station + ' · ' : '') + (statusText || '在途'),
     arrivedAt: 0,
     updatedAt: Date.now(),
   };
@@ -294,22 +306,33 @@ function mergeSnapshot(prevSnap, freshParcels) {
     sig: parcels.length + '/' + withCode, parcels: parcels,
   };
 }
-/* 对照旧快照，只报到站/签收的变化。第一次快照是基线，不报（免得 5 个已签收的一起刷屏）。 */
+/* 对照旧快照，只报到站/签收的变化，返回报了几条。第一次快照是基线，不报
+ *（免得 5 个已签收的一起刷屏）。 */
 function notifyTransitions(ctx, prevSnap, snap) {
-  if (!prevSnap || !prevSnap.updatedAt) return;
+  if (!prevSnap || !prevSnap.updatedAt) return 0;
   const prevByNo = {};
   (prevSnap.parcels || []).forEach(p => { prevByNo[p.no] = p; });
+  let n = 0;
   snap.parcels.forEach(p => {
     const prev = prevByNo[p.no];
     const prevState = prev ? stateOfParcel(prev) : 'none';
     const nowState = stateOfParcel(p);
     if (prevState === nowState) return;
     if (nowState === 'arrived') {
-      notify(ctx, '包裹到站可取', (p.title || p.no) + (p.code ? '，取件码 ' + p.code : '') + (p.latest ? '\n' + p.latest : ''));
+      notify(ctx, '包裹到站可取', (displayTitle(p)) + (p.code ? '，取件码 ' + p.code : '') + (p.latest ? '\n' + p.latest : ''));
+      n += 1;
     } else if (nowState === 'delivered') {
-      notify(ctx, '包裹已签收', (p.title || p.no) + (p.latest ? '\n' + p.latest : ''));
+      notify(ctx, '包裹已签收', (displayTitle(p)) + (p.latest ? '\n' + p.latest : ''));
+      n += 1;
     }
   });
+  return n;
+}
+/* 显示用标题：没商品名时不贴一长串单号，显示“公司 · 尾号后四位” */
+function displayTitle(p) {
+  if (p.title) return p.title;
+  if (p.company && p.no) return p.company + ' · 尾号 ' + String(p.no).slice(-4);
+  return p.no || '';
 }
 
 /* ---------------- 体捕获入口（http_response） ---------------- */
@@ -363,7 +386,19 @@ async function onCapture(ctx) {
       const prevSnap = loadJSON(ctx, SNAP_KEY);
       const snap = mergeSnapshot(prevSnap, fresh);
       saveJSON(ctx, SNAP_KEY, snap);
-      notifyTransitions(ctx, prevSnap, snap);
+      /* 抓取成功的反馈：第一次同步报一次汇总；内容变了报变化（没变化通知
+       * 就补一条汇总）；内容没变 5 分钟内只报一次汇总，免得刷一次报一次。 */
+      const firstSnap = !prevSnap || !prevSnap.updatedAt;
+      const summary = '其中 ' + snap.withCode + ' 个有取件码';
+      if (firstSnap) {
+        notify(ctx, '已同步 ' + snap.count + ' 个包裹', summary);
+        notedCooldown(ctx, 'sync-ok', 5 * 60 * 1000); /* 打上时间戳，立刻再刷不重复报 */
+      } else if (prevSnap.sig !== snap.sig) {
+        const n = notifyTransitions(ctx, prevSnap, snap);
+        if (n === 0) notify(ctx, '已同步 ' + snap.count + ' 个包裹', summary);
+      } else if (!notedCooldown(ctx, 'sync-ok', 5 * 60 * 1000)) {
+        notify(ctx, '已同步 ' + snap.count + ' 个包裹', '内容无变化，' + summary);
+      }
     }
     return { body: data };
   }
@@ -759,7 +794,7 @@ function capsule(text, color, big) {
 
 function parcelRow(p, textMain, textSub) {
   const st = stateOfParcel(p);
-  const main = st === 'arrived' && p.code ? p.code : (p.title || p.no);
+  const main = st === 'arrived' && p.code ? p.code : displayTitle(p);
   const sub = (p.company ? p.company + ' · ' : '') + (p.latest || '暂无轨迹');
   const tag = st === 'arrived' ? capsule('待取', '#3E9B5F', true)
     : st === 'delivered' ? capsule('已取', '#8A8A8E', true)
@@ -768,11 +803,13 @@ function parcelRow(p, textMain, textSub) {
     type: 'stack',
     direction: 'row',
     alignItems: 'center',
+    gap: 8,
     children: [
       {
         type: 'stack',
         direction: 'column',
         flex: 1,
+        gap: 2,
         children: [
           { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, maxLines: 1 },
           { type: 'text', text: sub, font: { size: 10 }, textColor: textSub, maxLines: 1 },
@@ -864,10 +901,19 @@ async function renderWidget(ctx) {
     };
   }
 
-  const slots = family === 'systemSmall' ? 4 : family === 'systemMedium' ? 6 : 10;
+  /* 小组件高度是固定的，行数必须按尺寸卡死，超了会挤在一起重叠：
+   * small 2 行、medium 3 行、large 8 行、extraLarge 10 行，多余的折进底栏。 */
+  const slots = family === 'systemSmall' ? 2
+    : family === 'systemMedium' ? 3
+    : family === 'systemLarge' ? 8
+    : family === 'systemExtraLarge' ? 10 : 3;
   const rows = [];
   pending.slice(0, slots).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
   transit.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
+  const hidden = all.length - rows.length;
+  const footerText = '待取 ' + pending.length + ' · 在途 ' + transit.length
+    + (hidden > 0 ? ' · 还有 ' + hidden + ' 个' : '')
+    + ' · ' + syncLabel(snap.updatedAt);
 
   const children = [];
   children.push({
@@ -878,22 +924,18 @@ async function renderWidget(ctx) {
       { type: 'text', text: syncLabel(snap.updatedAt), font: { size: 11 }, textColor: textSub },
     ],
   });
-  children.push({ type: 'spacer', length: 8 });
   if (!rows.length) {
     children.push({ type: 'text', text: '暂无在途或待取包裹', font: { size: 12 }, textColor: textSub });
   } else {
-    rows.forEach((r, i) => {
-      children.push(r);
-      if (i < rows.length - 1) children.push({ type: 'spacer', length: 6 });
-    });
+    rows.forEach((r) => children.push(r));
   }
   children.push({ type: 'spacer' });
-  children.push({ type: 'text', text: statsText, font: { size: 10, weight: 'medium' }, textColor: textSub, maxLines: 1 });
+  children.push({ type: 'text', text: footerText, font: { size: 10, weight: 'medium' }, textColor: textSub, maxLines: 1 });
 
   return {
     type: 'widget',
-    padding: [12, 14, 10, 14],
-    children: [{ type: 'stack', direction: 'column', children }],
+    padding: [10, 14, 8, 14],
+    children: [{ type: 'stack', direction: 'column', gap: 6, children }],
     refreshAfter,
   };
 }
