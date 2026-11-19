@@ -1,6 +1,6 @@
 name: 包裹助手
 
-description: 打开菜鸟 App 或小程序刷一次“我的包裹”，就自动同步包裹列表：到站显示取件码、到站/签收发通知、桌面小组件显示待取和在途。登录凭证抓取默认关闭，需要后台自动刷新时再打开开关。（v9：商品名前导空格去掉）
+description: 打开菜鸟 App 或小程序刷一次“我的包裹”，就自动同步包裹列表：到站显示取件码、到站/签收发通知、桌面小组件显示待取和在途。登录凭证抓取默认关闭，需要后台自动刷新时再打开开关，开关要一直开着才会在后台刷新。（v10：去 trim 去不掉的隐形前导字符）
 
 author: pin
 
@@ -10,7 +10,7 @@ env_schema:
 
   ENABLE_COOKIE_CAPTURE:
     name: 抓取登录凭证
-    description: 打开后，脚本会在你刷淘宝/菜鸟时存下登录凭证（_m_h5_tk），定时脚本就能在后台自动刷新，不用每次打开菜鸟。抓到一次后可以再关掉；关掉后不再存任何凭证，后台刷新也随之停止。
+    description: 打开后，脚本会在你刷淘宝/菜鸟时存下登录凭证（_m_h5_tk），定时脚本就能在后台自动刷新，不用每次打开菜鸟。后台刷新只在开关开着时跑，关掉就停，所以要一直开着；关掉后也不再存任何凭证。
     options:
       - "true"
       - "false"
@@ -46,24 +46,24 @@ scriptings:
 - http_response:
     name: parcel-capture
     match: "^https://(h5api\\.m\\.taobao\\.com|[^/]*\\.cainiao\\.com)/"
-    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel.js?v=9
+    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel.js?v=10
     body_required: true
     timeout: 10
 
 - schedule:
     name: parcel-refresh
     cron: "*/30 * * * *"
-    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel.js?v=9
+    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel.js?v=10
     timeout: 120
 
 - generic:
     name: parcel-widget
-    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel.js?v=9
+    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel.js?v=10
     timeout: 30
 
 - generic:
     name: parcel-status
-    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel.js?v=9
+    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/parcel.js?v=10
     timeout: 30
 
 widgets:

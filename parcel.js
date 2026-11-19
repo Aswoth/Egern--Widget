@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v9
+ * 包裹助手（Egern 版）v10
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -9,7 +9,7 @@
  *   2) MTOP 轮询（后台自动刷新）：需要淘宝登录凭证 _m_h5_tk。
  *      凭证抓取默认关闭（模块设置里的“抓取登录凭证”开关），打开后
  *      刷淘宝/菜鸟时存下凭证，定时脚本每 30 分钟调一次菜鸟接口；
- *      抓到一次后可以再把开关关掉——关掉就不再存任何凭证。
+ *      后台刷新只在开关开着时跑，关掉就停——开关要一直开着。
  *   3) 快递鸟 8001（可选补充）：填了密钥和运单号才能用，给没有菜鸟
  *      列表的单号查详细轨迹；运单号变了会强制查一次，和菜鸟快照合并，
  *      不会丢掉菜鸟的包裹。
@@ -25,7 +25,7 @@
  *   generic（parcel-status）→ 手动查一次现状
  */
 
-const PARCEL_VERSION = 'v9';
+const PARCEL_VERSION = 'v10';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -298,7 +298,7 @@ const CARRIER_NAMES = { YUNDA: '韵达快递', SF: '顺丰速运', SHUNFENG: '�
 /* 公司名：代码翻中文；已经是中文名就原样用；接口里没有就按单号前缀认
  *（顺丰 SF、韵达 31/32/43、中通 75/76——这三组按用户实测数据核对过）。 */
 function carrierName(raw, no) {
-  const s = String(raw || '').trim();
+  const s = stripEdge(raw);
   if (s && !/签收|在途|派送|取件|到达|运输|揽收|待取|已取|妥投|代收|物流/.test(s)) {
     const up = s.toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (CARRIER_NAMES[up]) return CARRIER_NAMES[up];
@@ -336,7 +336,7 @@ function trimPackage(p) {
   /* 接口有时只给英文状态码，显示时翻成中文 */
   const statusText = { SIGN: '已签收', SIGNED: '已签收', DELIVERED: '已签收', SIGN_SUCCESS: '已签收', DELIVERED_SUCCESS: '已签收', SIGNED_SUCCESS: '已签收', PICKUP: '待取件', TRANSIT: '在途', IN_TRANSIT: '在途', CANCEL: '已取消', REJECT: '已拒收', RETURN: '已退回', LOST: '已丢失' }[String(rawStatus).toUpperCase()] || rawStatus;
   const resolved = signedFlag ? 'delivered' : familyOf(rawStatus, code);
-  const station = pickStr(st, 'pointName', 'point_name', 'stationName', 'name');
+  const station = stripEdge(pickStr(st, 'pointName', 'point_name', 'stationName', 'name'));
   const no = pickStr(p, 'mailNo', 'mail_no');
   const rawCarrier = pickStr(p, 'cpName', 'cp_name', 'companyName')
     || pickStr(p, 'cpCode', 'cp_code')
@@ -346,14 +346,14 @@ function trimPackage(p) {
     || pickStr(first, 'itemTitle', 'item_title');
   return {
     no: no,
-    title: cleanTitle(rawTitle) || String(rawTitle || '').trim(),
+    title: cleanTitle(rawTitle) || stripEdge(rawTitle),
     company: carrierName(rawCarrier, no),
     phoneTail: phoneTailOf(p),
     code: code,
     station: station,
     status: resolved,
     statusText: statusText,
-    latest: (station ? station + ' · ' : '') + (statusText || (resolved === 'delivered' ? '已签收' : resolved === 'arrived' ? '待取件' : '在途')),
+    latest: stripEdge((station ? station + ' · ' : '') + (statusText || (resolved === 'delivered' ? '已签收' : resolved === 'arrived' ? '待取件' : '在途'))),
     arrivedAt: 0,
     updatedAt: Date.now(),
   };
@@ -492,12 +492,20 @@ function notifyTransitions(ctx, prevSnap, snap) {
 /* 商品名去冗长：去掉开头的【促销/渠道】前缀；标题里常有
  * “50ml/100ml/黑绷带 50ml”这种斜杠重复段，只取第一段，再去末尾规格
  *（【正品行货】赫莲娜黑绷带面霜 50ml/100ml → 赫莲娜黑绷带面霜）。 */
+/* 去掉首尾的隐形字符：trim() 只去标准空白，接口数据里可能带上
+ * trim() 去不掉、显示出来却占一个空白宽度的字符（零宽、格式控制、
+ * 盲文空白 U+2800、韩文填充等）。v9 的 trim 对它们无效，黑绷带那行
+ * 前导空白就是这么来的——标题与副行开头都带上了这种字符。
+ * 两端都剥：抓取时存干净的，显示时再剥一次兜底。 */
+function stripEdge(s) {
+  return String(s || '').replace(/^[\s\u200B\u200C\u200D\u2060\uFEFF\u180E\u2800\u3164\u115F\u1160]+/, '').replace(/[\s\u200B\u200C\u200D\u2060\uFEFF\u180E\u2800\u3164\u115F\u1160]+$/, '');
+}
 function cleanTitle(t) {
-  let s = String(t || '').trim();
+  let s = stripEdge(t);
   while (/^【[^】]*】\s*/.test(s)) s = s.replace(/^【[^】]*】\s*/, '');
-  s = s.split('/')[0].trim();
+  s = stripEdge(s.split('/')[0]);
   s = s.replace(/\s*\d+(\.\d+)?\s*(ml|g|kg|l|片|只|瓶|盒|条|包|罐|支|套|件|枚)\s*$/i, '');
-  return s.trim();
+  return stripEdge(s);
 }
 /* 手机号后四位：接口里可能叫 mobile/phone/tel，也可能直接写在
  * “手机尾号4514”这种文案里；找不到就返回空（显示时回落到运单号后四位）。 */
@@ -525,16 +533,17 @@ function phoneTailOf(p) {
  * 没商品名显示“快递公司 · 手机号后四位”，接口里没有手机号后四位时
  * 回落到“快递公司 · 运单号后四位”，不用“尾号”这个词，全号仍在快照里。
  * 没公司名也认不出前缀时才显示全号。
- * 注意：标题先 trim 再显示——旧快照里存的标题可能带前导空格（老版本
- * cleanTitle 去【】前缀时没吃掉后面的空格），不 trim 就会像“ 赫莲娜…”
- * 这样前面空一格；只含空格的标题按没商品名处理。 */
+ * 注意：标题先去隐形字符再显示——旧快照里存的标题可能带前导空格或
+ * trim() 去不掉的隐形字符（老版本 cleanTitle 去【】前缀时没吃掉后
+ * 面的空格，接口数据里也可能带盲文空白这类字符），不去掉就会像
+ * “ 赫莲娜…”这样前面空一格；只含空白的标题按没商品名处理。 */
 function displayTitle(p) {
-  const t = String(p.title || '').trim();
+  const t = stripEdge(p.title);
   if (t) {
     return t.length > 12 ? t.slice(0, 12) + '…' : t;
   }
   if (p.no) {
-    if (p.company) return p.company + ' · ' + (p.phoneTail || String(p.no).slice(-4));
+    if (p.company) return stripEdge(p.company) + ' · ' + (p.phoneTail || String(p.no).slice(-4));
     return p.no;
   }
   return '';
@@ -1005,10 +1014,12 @@ function statusMark(p) {
 
 function parcelRow(p, textMain, textSub) {
   const st = stateOfParcel(p);
-  const main = st === 'arrived' && p.code ? p.code : displayTitle(p);
-  /* 主行已经是“公司 · 后四位”时副行不再重复公司名；其他情况副行补上公司名 */
+  const main = stripEdge(st === 'arrived' && p.code ? p.code : displayTitle(p));
+  /* 主行已经是“公司 · 后四位”时副行不再重复公司名；其他情况副行补上公司名。
+   * 副行里的 latest 也要单独剥一次：latest 自带隐形前缀时，拼在“ · ”后面
+   * 就落到字符串中间，整串 stripEdge 够不着（R17b 就是这么漏过去的）。 */
   const mainHasCompany = !p.title && p.company && !(st === 'arrived' && p.code);
-  const sub = (mainHasCompany ? '' : (p.company ? p.company + ' · ' : '')) + (p.latest || '暂无轨迹');
+  const sub = stripEdge((mainHasCompany ? '' : (p.company ? stripEdge(p.company) + ' · ' : '')) + stripEdge(p.latest || '暂无轨迹'));
   const mark = statusMark(p);
   return {
     type: 'stack',
@@ -1217,6 +1228,14 @@ async function onStatus(ctx) {
   }
   const check = loadJSON(ctx, CHECK_KEY) || {};
   if (check.last) lines.push('上次后台刷新：' + String(check.last).slice(0, 40));
+  /* 标题调试：印每单标题/公司/最新动态的首字码点。直接看是看不出来
+   * 隐形字符的（JSON 也不会把它转义成 \uXXXX），但首字码点会现形：
+   * 正常标题首字是中文（赫=8d6b），带隐形前缀时首字会是 2800/200b 之类。 */
+  if (snap && Array.isArray(snap.parcels) && snap.parcels.length) {
+    const codeOf = (s) => { const t = String(s || ''); return t ? 'U+' + t.charCodeAt(0).toString(16) : '-'; };
+    const dbg = snap.parcels.map((p) => (String(p.no || '').slice(-4) || '??') + ':标题首字' + codeOf(p.title) + '/公司首字' + codeOf(p.company) + '/动态首字' + codeOf(p.latest)).join(' | ');
+    lines.push('标题调试：' + dbg);
+  }
   notify(ctx, '包裹助手状态', lines.join('\n'));
 }
 
