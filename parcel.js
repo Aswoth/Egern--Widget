@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v11
+ * 包裹助手（Egern 版）v12
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -24,8 +24,7 @@
  *   generic（parcel-widget）→ 小组件
  *   generic（parcel-status）→ 手动查一次现状
  */
-
-const PARCEL_VERSION = 'v11';
+const PARCEL_VERSION = 'v12';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -50,13 +49,9 @@ const SNAP_TTL_MS = 30 * 60 * 1000;
 
 const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
 
-/* 状态判定（原 Scripting 版 model.ts / kdniao.ts 的正则）。
- * 注意：裸“自提/完成”不能算已签收——“待自提”是待取，“配送完成”才是签收。 */
 const DELIVERED_RE = /已签收|签收成功|已妥投|妥投|已代收|代收成功|已自提|自提成功|取件成功|已取件|已完成|派送完成|配送完成|已送达|已领取|已投递/;
 const PICKABLE = /待取件|已到站|已暂存|已存放|已放入|送达代收点|请及时取|请及时领取|凭取件码|待领取|已妥收|快递柜|驿站|代收点|待自提|待取货|已入柜|请凭码取件/;
 const TRANSIT_ONLY = /转运中心|分拨中心|集散中心|运转中心|发往|已发出|正在派送|派件中|揽收|已到达[^，。]*中心/;
-
-/* ---------------- MD5（纯 JS，RFC 1321） ---------------- */
 
 function md5Hex(input) {
   function rl(n, c) { return (n << c) | (n >>> (32 - c)); }
@@ -125,7 +120,6 @@ function md5Hex(input) {
   return hex(a0) + hex(b0) + hex(c0) + hex(d0);
 }
 
-/* Base64（只对 ASCII 字符串用，DataSign 就是对 MD5 十六进制串做的） */
 function b64Ascii(str) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
   let out = '';
@@ -141,21 +135,18 @@ function b64Ascii(str) {
   return out;
 }
 
-/* 快递鸟签名：DataSign = urlencode(base64(md5(RequestData + AppKey) 的小写十六进制串)) */
 function kdniaoSign(requestData, appKey) {
   return encodeURIComponent(b64Ascii(md5Hex(requestData + appKey)));
 }
-
-/* ---------------- 小工具 ---------------- */
 
 function loadJSON(ctx, key) {
   try { return ctx.storage.getJSON(key); } catch (e) { return null; }
 }
 function saveJSON(ctx, key, val) {
-  try { ctx.storage.setJSON(key, val); } catch (e) { /* 忽略 */ }
+  try { ctx.storage.setJSON(key, val); } catch (e) {  }
 }
 function notify(ctx, title, body) {
-  try { ctx.notify({ title, body }); } catch (e) { /* 忽略 */ }
+  try { ctx.notify({ title, body }); } catch (e) {  }
 }
 function flagSet(ctx, flag) {
   const f = loadJSON(ctx, FLAG_KEY) || {};
@@ -164,7 +155,7 @@ function flagSet(ctx, flag) {
   saveJSON(ctx, FLAG_KEY, f);
   return false;
 }
-/* 冷却通知：同一件事 ms 内只报一次，过期再报（目前未用，留作以后） */
+
 function notedCooldown(ctx, flag, ms) {
   const n = loadJSON(ctx, NOTED_KEY) || {};
   const t = n[flag];
@@ -173,14 +164,12 @@ function notedCooldown(ctx, flag, ms) {
   saveJSON(ctx, NOTED_KEY, n);
   return false;
 }
-/* 抓取登录凭证的开关：env_schema 里 options ["true","false"] 生成 Toggle，
- * 没碰过开关时 env 里没有这个键，默认关。值是字符串 "true"/"false"。 */
+
 function cookieCaptureOn(ctx) {
   const v = (ctx.env || {}).ENABLE_COOKIE_CAPTURE;
   return v === true || String(v).toLowerCase() === 'true';
 }
 
-/* 从 "a=1; b=2" 或 ["a=1; Path=/", ...] 里抠出想要的 cookie（只记值，不记无关项） */
 function pickCookies(values) {
   const out = {};
   const list = Array.isArray(values) ? values : (values ? [values] : []);
@@ -204,8 +193,6 @@ function cookieHeader(cookies) {
   return Object.keys(cookies).map(k => k + '=' + cookies[k]).join('; ');
 }
 
-/* ---------------- 菜鸟列表解析（探针 v6/v10 已验证） ---------------- */
-
 const CODE_PLACEHOLDER = ['needsms', 'need_sms', '-1', '0', '', 'null', 'none'];
 function pickStr(o) {
   if (!o || typeof o !== 'object') return '';
@@ -215,14 +202,13 @@ function pickStr(o) {
   }
   return '';
 }
-/* 原 App mtop.ts 的 mtopData：响应可能是 data.data 双层包 */
+
 function mtopData(j) {
   const d = j && j.data;
   if (d && typeof d === 'object' && d.data !== undefined) return d.data;
   return d || null;
 }
-/* 在响应里找包裹数组：原版是 data.packages，小程序 lightapp 是
- * data.result（对象里再套 packages/packageList/list，或直接就是数组）。 */
+
 function findList(d) {
   if (!d || typeof d !== 'object') return null;
   if (Array.isArray(d.packages)) return d.packages;
@@ -239,9 +225,7 @@ function findList(d) {
   if (Array.isArray(d.items)) return d.items;
   return null;
 }
-/* 状态文案 → 家族。原 App 的状态码：SIGN/CANCEL/REJECT/RETURN/LOST 都是已完结，
- * PICKUP 是待取；轻应用接口的状态码可能是 DELIVERED/SIGNED 这类英文，也认。
- * 中文文案走正则。 */
+
 function familyOf(raw, code) {
   const s = String(raw || '');
   if (DELIVERED_RE.test(s)) return 'delivered';
@@ -254,9 +238,7 @@ function familyOf(raw, code) {
   if (code) return 'arrived';
   return s ? 'transit' : 'none';
 }
-/* 状态候选全收集：一个包裹可能有多个互相冲突的状态字段（顶层一个粗状态、
- * 嵌套里一个细状态），只取第一个会被粗状态挡住；时间/日期字段不是状态，
- * 比如 signDate 里的时间戳不能当成状态文案。 */
+
 function scanStatusCandidates(obj, depth, out) {
   if (!obj || typeof obj !== 'object' || depth > 2) return;
   for (const k of Object.keys(obj)) {
@@ -266,7 +248,7 @@ function scanStatusCandidates(obj, depth, out) {
     if (v && typeof v === 'object') scanStatusCandidates(v, depth + 1, out);
   }
 }
-/* 多个候选按 已签收 > 待取 > 在途 取最“靠后”的一个；打平时取第一个（顶层优先）。 */
+
 function bestStatus(cands) {
   let best = '', bestRank = -1;
   for (const c of cands) {
@@ -276,8 +258,7 @@ function bestStatus(cands) {
   }
   return best;
 }
-/* 在包裹对象里按 key 的意思找字段：轻应用接口的字段名和 H5 版不完全一样，
- * 先扫本层、再往 feature/packageStation 等嵌套对象里找（最多两层）。 */
+
 function scanField(obj, keyRe, skipRe, depth) {
   if (!obj || typeof obj !== 'object') return '';
   for (const k of Object.keys(obj)) {
@@ -295,8 +276,7 @@ function scanField(obj, keyRe, skipRe, depth) {
   return '';
 }
 const CARRIER_NAMES = { YUNDA: '韵达快递', SF: '顺丰速运', SHUNFENG: '顺丰速运', ZTO: '中通快递', ZHONGTONG: '中通快递', YTO: '圆通速递', YUANTONG: '圆通速递', STO: '申通快递', SHENTONG: '申通快递', JD: '京东快递', JT: '极兔速递', JTEXPRESS: '极兔速递', EMS: 'EMS', YZPY: '邮政快递', YOUZHENGGUONEI: '邮政快递', DBWL: '德邦快递', HTKY: '百世快递', BESTEX: '百世快递', ZJS: '宅急送', TTKDEX: '天天快递', GTO: '国通快递', YS: '优速快递' };
-/* 公司名：代码翻中文；已经是中文名就原样用；接口里没有就按单号前缀认
- *（顺丰 SF、韵达 31/32/43、中通 75/76——这三组按用户实测数据核对过）。 */
+
 function carrierName(raw, no) {
   const s = stripEdge(raw);
   if (s && !/签收|在途|派送|取件|到达|运输|揽收|待取|已取|妥投|代收|物流/.test(s)) {
@@ -310,7 +290,7 @@ function carrierName(raw, no) {
   if (/^(75|76)\d/.test(n)) return '中通快递';
   return '';
 }
-/* 菜鸟一条包裹 → 统一快照形状（取件码取法与原 App cainiao.ts 的 pickupCodeOf 一致） */
+
 function trimPackage(p) {
   if (!p || typeof p !== 'object') return null;
   const st = p.packageStation || {};
@@ -324,16 +304,14 @@ function trimPackage(p) {
   }
   if (code && CODE_PLACEHOLDER.indexOf(code.toLowerCase()) !== -1) code = '';
   const first = items[0] || {};
-  /* 状态不只认 status/statusDesc 几个固定 key：轻应用接口可能换字段名，
-   * 按 key 的意思全对象扫一遍，多个候选取最“靠后”的；isSign/signTime/
-   * signDate 这类签收标记也认。 */
+
   const cands = [];
   scanStatusCandidates(p, 0, cands);
   const topStatus = pickStr(p, 'status', 'statusDesc', 'packageStatus');
   if (topStatus) cands.unshift(topStatus);
   const rawStatus = bestStatus(cands);
   const signedFlag = p.isSign === true || p.signed === true || !!pickStr(p, 'signTime', 'signedTime', 'signDate', 'signedDate');
-  /* 接口有时只给英文状态码，显示时翻成中文 */
+
   const statusText = { SIGN: '已签收', SIGNED: '已签收', DELIVERED: '已签收', SIGN_SUCCESS: '已签收', DELIVERED_SUCCESS: '已签收', SIGNED_SUCCESS: '已签收', PICKUP: '待取件', TRANSIT: '在途', IN_TRANSIT: '在途', CANCEL: '已取消', REJECT: '已拒收', RETURN: '已退回', LOST: '已丢失' }[String(rawStatus).toUpperCase()] || rawStatus;
   const resolved = signedFlag ? 'delivered' : familyOf(rawStatus, code);
   const station = stripEdge(pickStr(st, 'pointName', 'point_name', 'stationName', 'name'));
@@ -366,8 +344,7 @@ function stateOfParcel(p) {
   if (p.code) return 'arrived';
   return p.status === 'none' ? 'none' : 'transit';
 }
-/* 菜鸟新列表并进快照：取件码和到站时间沿用旧的，不丢；keepNos 是手动填的
- * 运单号（快递鸟在查的），菜鸟列表里没有它们，刷新时要留着不能丢。 */
+
 function mergeSnapshot(prevSnap, freshParcels, keepNos) {
   const prevByNo = {};
   ((prevSnap && prevSnap.parcels) || []).forEach(p => { prevByNo[p.no] = p; });
@@ -388,13 +365,12 @@ function mergeSnapshot(prevSnap, freshParcels, keepNos) {
   return {
     at: Date.now(), updatedAt: Date.now(),
     count: parcels.length, withCode: withCode,
-    /* 指纹必须含状态和取件码，不然状态翻了（在途→已签收）也认不出变化，
-     * 变化通知就永远不触发。 */
+
     sig: parcels.map(p => p.no + '=' + p.status + '/' + (p.code || '')).join(','),
     parcels: parcels,
   };
 }
-/* 快递鸟查到的单号并进快照：只更新这些单号，菜鸟的包裹一个不动。 */
+
 function mergeKdniaoInto(prevSnap, kdParcels) {
   const prevByNo = {};
   ((prevSnap && prevSnap.parcels) || []).forEach(p => { prevByNo[p.no] = p; });
@@ -415,12 +391,11 @@ function mergeKdniaoInto(prevSnap, kdParcels) {
     parcels: parcels,
   };
 }
-/* 当前环境变量里的运单号（快递鸟在查的那些） */
+
 function kdniaoNos(env) {
   try { return parseTrackings((env || {}).TRACKINGS).map(t => t.no); } catch (e) { return []; }
 }
-/* 运单号变了没：变了就记下新的，返回 true——调用方看到 true 就强制查一次。
- * 第一次填也算“变了”。 */
+
 function trackingsChanged(ctx) {
   const cur = String((ctx.env || {}).TRACKINGS || '');
   const prev = loadJSON(ctx, TRACKINGS_KEY);
@@ -428,9 +403,7 @@ function trackingsChanged(ctx) {
   saveJSON(ctx, TRACKINGS_KEY, { raw: cur, nos: kdniaoNos(ctx.env) });
   return true;
 }
-/* 对照旧快照，只报到站/签收/新包裹/出码，返回报了几条。第一次快照是基线，
- * 不报（免得 5 个已签收的一起刷屏）。一次变好几个就合成一条汇总，不连刷。
- * 内容没变、只有文案变了这类不报——抓取本身是静默的。 */
+
 function notifyTransitions(ctx, prevSnap, snap) {
   if (!prevSnap || !prevSnap.updatedAt) return 0;
   const prevByNo = {};
@@ -489,14 +462,7 @@ function notifyTransitions(ctx, prevSnap, snap) {
   }
   return n;
 }
-/* 商品名去冗长：去掉开头的【促销/渠道】前缀；标题里常有
- * “50ml/100ml/黑绷带 50ml”这种斜杠重复段，只取第一段，再去末尾规格
- *（【正品行货】赫莲娜黑绷带面霜 50ml/100ml → 赫莲娜黑绷带面霜）。 */
-/* 去掉首尾的隐形字符：trim() 只去标准空白，接口数据里可能带上
- * trim() 去不掉、显示出来却占一个空白宽度的字符（零宽、格式控制、
- * 盲文空白 U+2800、韩文填充等）。v9 的 trim 对它们无效，黑绷带那行
- * 前导空白就是这么来的——标题与副行开头都带上了这种字符。
- * 两端都剥：抓取时存干净的，显示时再剥一次兜底。 */
+
 function stripEdge(s) {
   return String(s || '').replace(/^[\s\u200B\u200C\u200D\u2060\uFEFF\u180E\u2800\u3164\u115F\u1160]+/, '').replace(/[\s\u200B\u200C\u200D\u2060\uFEFF\u180E\u2800\u3164\u115F\u1160]+$/, '');
 }
@@ -507,8 +473,7 @@ function cleanTitle(t) {
   s = s.replace(/\s*\d+(\.\d+)?\s*(ml|g|kg|l|片|只|瓶|盒|条|包|罐|支|套|件|枚)\s*$/i, '');
   return stripEdge(s);
 }
-/* 手机号后四位：接口里可能叫 mobile/phone/tel，也可能直接写在
- * “手机尾号4514”这种文案里；找不到就返回空（显示时回落到运单号后四位）。 */
+
 function phoneTailOf(p) {
   let found = '';
   (function walk(o, depth) {
@@ -529,14 +494,7 @@ function phoneTailOf(p) {
   })(p, 0);
   return found;
 }
-/* 显示用标题：有商品名显示商品名（已去冗长，最长 12 字，多了截断）；
- * 没商品名显示“快递公司 · 手机号后四位”，接口里没有手机号后四位时
- * 回落到“快递公司 · 运单号后四位”，不用“尾号”这个词，全号仍在快照里。
- * 没公司名也认不出前缀时才显示全号。
- * 注意：标题先去隐形字符再显示——旧快照里存的标题可能带前导空格或
- * trim() 去不掉的隐形字符（老版本 cleanTitle 去【】前缀时没吃掉后
- * 面的空格，接口数据里也可能带盲文空白这类字符），不去掉就会像
- * “ 赫莲娜…”这样前面空一格；只含空白的标题按没商品名处理。 */
+
 function displayTitle(p) {
   const t = stripEdge(p.title);
   if (t) {
@@ -549,15 +507,13 @@ function displayTitle(p) {
   return '';
 }
 
-/* ---------------- 体捕获入口（http_response） ---------------- */
-
 async function onCapture(ctx) {
-  /* 开关开时才存凭证；关着就不碰 Cookie 头 */
+
   if (cookieCaptureOn(ctx)) {
     let reqCookie = null;
     let setCookies = [];
-    try { reqCookie = ctx.request.headers.get('cookie'); } catch (e) { /* 忽略 */ }
-    try { setCookies = ctx.response.headers.getAll('set-cookie') || []; } catch (e) { /* 忽略 */ }
+    try { reqCookie = ctx.request.headers.get('cookie'); } catch (e) {  }
+    try { setCookies = ctx.response.headers.getAll('set-cookie') || []; } catch (e) {  }
     const found = {};
     Object.assign(found, pickCookies(reqCookie));
     Object.assign(found, pickCookies(setCookies));
@@ -577,8 +533,6 @@ async function onCapture(ctx) {
     }
   }
 
-  /* 读响应体里的包裹列表（body_required 的入口才有 body，没 body 就透传）。
-   * 读到 body 就原样返回，不改内容。 */
   let data = null;
   try {
     data = await ctx.response.json();
@@ -587,12 +541,12 @@ async function onCapture(ctx) {
   }
   if (data && typeof data === 'object') {
     let d = mtopData(data);
-    /* 有的接口（小程序的 lightapp 列表）把 data 包成 JSON 字符串 */
+
     if (typeof d === 'string') {
       try {
         const parsed = JSON.parse(d);
         if (parsed && typeof parsed === 'object') d = mtopData({ data: parsed }) || parsed;
-      } catch (e) { /* 不是 JSON 字符串，保持原样 */ }
+      } catch (e) {  }
     }
     const list = findList(d);
     if (list) {
@@ -600,8 +554,7 @@ async function onCapture(ctx) {
       const prevSnap = loadJSON(ctx, SNAP_KEY);
       const snap = mergeSnapshot(prevSnap, fresh, kdniaoNos(ctx.env));
       saveJSON(ctx, SNAP_KEY, snap);
-      /* 抓取本身静默：第一次同步报一次汇总（只这一次），之后只在有新包裹 /
-       * 到站 / 签收 / 出码时报变化，内容没变什么都不报。 */
+
       const firstSnap = !prevSnap || !prevSnap.updatedAt;
       if (firstSnap) {
         notify(ctx, '已同步 ' + snap.count + ' 个包裹', '其中 ' + snap.withCode + ' 个有取件码');
@@ -613,8 +566,6 @@ async function onCapture(ctx) {
   }
   return undefined;
 }
-
-/* ---------------- MTOP 轮询（后台自动刷新） ---------------- */
 
 function retOf(j, txt) {
   if (j && Array.isArray(j.ret)) return j.ret.join(';');
@@ -640,7 +591,7 @@ async function mtopList(ctx, cookies) {
   });
   const txt = await res.text();
   let j = null;
-  try { j = JSON.parse(txt); } catch (e) { /* 不是 JSON */ }
+  try { j = JSON.parse(txt); } catch (e) {  }
   return { res, txt, j };
 }
 
@@ -651,7 +602,7 @@ async function refreshToken(ctx, cookies) {
   });
   await res.text().catch(() => '');
   let setCookies = [];
-  try { setCookies = res.headers.getAll('set-cookie') || []; } catch (e) { /* 忽略 */ }
+  try { setCookies = res.headers.getAll('set-cookie') || []; } catch (e) {  }
   const fresh = pickCookies(setCookies);
   if (fresh['_m_h5_tk']) {
     const merged = Object.assign({}, cookies, fresh);
@@ -661,7 +612,6 @@ async function refreshToken(ctx, cookies) {
   return null;
 }
 
-/* 调一次 MTOP 列表，成功返回快照，失败返回 { error }。ret 变化才报通知。 */
 async function pollMtop(ctx) {
   const cookies = loadJSON(ctx, COOKIES_KEY) || {};
   if (!cookies['_m_h5_tk']) return { error: 'nocookie' };
@@ -688,7 +638,7 @@ async function pollMtop(ctx) {
           ret = ret2;
         }
       }
-    } catch (e) { /* 刷新失败，走下面的失败分支 */ }
+    } catch (e) {  }
   }
   if (ret.toUpperCase().indexOf('SUCCESS') !== -1) {
     const list = findList(mtopData(r.j));
@@ -702,20 +652,17 @@ async function pollMtop(ctx) {
   return { error: '菜鸟接口返回：' + ret.slice(0, 60) };
 }
 
-/* ---------------- 定时脚本 ---------------- */
-
 async function onSchedule(ctx) {
   const env = ctx.env || {};
   const check = loadJSON(ctx, CHECK_KEY) || {};
 
-  /* 开关开 + 有凭证 → MTOP 后台轮询（只刷菜鸟列表） */
   if (cookieCaptureOn(ctx)) {
     const cookies = loadJSON(ctx, COOKIES_KEY) || {};
     if (!cookies['_m_h5_tk']) {
       if (!flagSet(ctx, 'nocookie-noted')) {
         notify(ctx, '后台刷新还没凭证', '去淘宝 App 点一次订单 → 查看物流（H5），抓到登录凭证后即可后台自动刷新；不想用了就把开关关掉');
       }
-      /* 没凭证也不拦快递鸟：继续往下查运单号 */
+
     } else {
       const r = await pollMtop(ctx);
       if (r.ok) {
@@ -735,8 +682,6 @@ async function onSchedule(ctx) {
     }
   }
 
-  /* 快递鸟：填了密钥和运单号就查（不论开关开不开），结果并进快照，
-   * 菜鸟的包裹一个不动；运单号变了也会在这里查到。 */
   if (env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY && env.TRACKINGS) {
     trackingsChanged(ctx);
     const prevSnap = loadJSON(ctx, SNAP_KEY) || { parcels: [] };
@@ -749,8 +694,6 @@ async function onSchedule(ctx) {
   }
 }
 
-/* ---------------- 快递鸟 8001（可选补充） ---------------- */
-
 const COM2SHIPPER = {
   zhongtong: 'ZTO', zto: 'ZTO', yunda: 'YUNDA', yto: 'YTO', yuantong: 'YTO',
   sto: 'STO', shentong: 'STO', shunfeng: 'SF', sf: 'SF', jd: 'JD',
@@ -761,7 +704,6 @@ const COM2SHIPPER = {
 const KNOWN_SHIPPERS = new Set(Object.values(COM2SHIPPER));
 const CODE_KEYWORDS = ['取件码', '取货码', '取件号', '取件密码', '提货码', '取货密码', '取件凭证', '领件码', '包裹码', '柜机码', '取件口令'];
 
-/* 一行一个：运单号|备注 或 运单号|公司代码|备注；多条用换行或分号隔开 */
 function parseTrackings(raw) {
   const out = [];
   if (!raw) return out;
@@ -792,7 +734,6 @@ function parseTrackTime(s) {
   return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0)).getTime();
 }
 
-/* 轨迹里最新一条「可取件」节点的时间（中转节点跳过） */
 function arrivedAtOf(nodes) {
   let best = 0;
   (nodes || []).forEach((n) => {
@@ -809,7 +750,6 @@ function looksLikeMobile(s) {
   return /^1[3-9]\d{9}$/.test(s.replace(/[\s-]/g, ''));
 }
 
-/* 从一段轨迹文案里取取件码（原 App pickupCode.ts 的打分逻辑简化版） */
 function pickupCodeInText(text) {
   const src = String(text || '');
   if (!src) return '';
@@ -870,7 +810,6 @@ function flattenStation(v, depth) {
   return '';
 }
 
-/* 快递公司识别：快递100 公开接口（免 key） */
 async function detectShipper(ctx, no) {
   const res = await ctx.http.get(AUTONUM_URL + encodeURIComponent(no), {
     headers: { 'User-Agent': KD100_UA, Referer: 'https://www.kuaidi100.com/', Accept: 'application/json, text/plain, */*' },
@@ -884,7 +823,6 @@ async function detectShipper(ctx, no) {
   return { shipperCode: COM2SHIPPER[comCode.toLowerCase()] || comCode.toUpperCase(), company: first.name || '' };
 }
 
-/* 快递鸟 8001 即时查询 */
 async function queryKdniao(ctx, env, no, shipperCode, company, phone) {
   const rd = { LogisticCode: no, ShipperCode: shipperCode };
   if (phone) rd.CustomerName = phone;
@@ -927,7 +865,6 @@ async function queryKdniao(ctx, env, no, shipperCode, company, phone) {
   return { shipperCode, company: company || shipperCode, state, status, latest, nodes };
 }
 
-/* 查一遍全部运单，返回统一形状的包裹 */
 async function refreshKdniao(ctx, env, prevByNo) {
   const trackings = parseTrackings(env.TRACKINGS);
   const phone = String(env.PHONE_LAST4 || '').trim();
@@ -978,8 +915,6 @@ async function refreshKdniao(ctx, env, prevByNo) {
   return { updatedAt: Date.now(), parcels };
 }
 
-/* ---------------- 小组件脚本 ---------------- */
-
 function syncLabel(ts) {
   if (!ts) return '尚未同步';
   const d = new Date(ts);
@@ -989,7 +924,6 @@ function syncLabel(ts) {
   return sameDay ? t + ' 同步' : (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + t + ' 同步';
 }
 
-/* 快递公司小方块：公司名首字（韵/顺/中/圆…），没公司名就用单号首字 */
 function logoTile(p, textMain) {
   const ch = (p.company ? p.company[0] : (p.no ? String(p.no)[0] : '•'));
   return {
@@ -1004,7 +938,7 @@ function logoTile(p, textMain) {
     ],
   };
 }
-/* 状态只用小字标在右边，不用彩色大药丸：待取绿、在途橙、已取灰 */
+
 function statusMark(p) {
   const st = stateOfParcel(p);
   if (st === 'arrived') return { text: '待取', color: { light: '#2E9E5B', dark: '#30D158' } };
@@ -1015,9 +949,7 @@ function statusMark(p) {
 function parcelRow(p, textMain, textSub) {
   const st = stateOfParcel(p);
   const main = stripEdge(st === 'arrived' && p.code ? p.code : displayTitle(p));
-  /* 主行已经是“公司 · 后四位”时副行不再重复公司名；其他情况副行补上公司名。
-   * 副行里的 latest 也要单独剥一次：latest 自带隐形前缀时，拼在“ · ”后面
-   * 就落到字符串中间，整串 stripEdge 够不着（R17b 就是这么漏过去的）。 */
+
   const mainHasCompany = !p.title && p.company && !(st === 'arrived' && p.code);
   const sub = stripEdge((mainHasCompany ? '' : (p.company ? stripEdge(p.company) + ' · ' : '')) + stripEdge(p.latest || '暂无轨迹'));
   const mark = statusMark(p);
@@ -1066,8 +998,7 @@ async function renderWidget(ctx) {
   });
 
   let snap = loadJSON(ctx, SNAP_KEY);
-  /* 运单号变了（刚填了新单号）→ 不管快照新不新鲜，立刻查一次快递鸟，
-   * 查到就并进快照（小组件 10 分钟一刷，保存后 10 分钟内就会查）。 */
+
   if (env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY && env.TRACKINGS && trackingsChanged(ctx)) {
     try {
       const prevSnap0 = snap;
@@ -1078,7 +1009,7 @@ async function renderWidget(ctx) {
       saveJSON(ctx, SNAP_KEY, merged);
       snap = merged;
       if (prevSnap0) notifyTransitions(ctx, prevSnap0, merged);
-    } catch (e) { /* 失败就等下次定时再查 */ }
+    } catch (e) {  }
   }
   const stale = !snap || !Array.isArray(snap.parcels) || Date.now() - (snap.updatedAt || 0) > SNAP_TTL_MS;
   if (stale) {
@@ -1094,7 +1025,7 @@ async function renderWidget(ctx) {
         saveJSON(ctx, SNAP_KEY, merged);
         snap = merged;
       }
-    } catch (e) { /* 刷新失败就显示旧快照 */ }
+    } catch (e) {  }
   }
   if (!snap || !Array.isArray(snap.parcels) || !snap.parcels.length) {
     return hint('打开菜鸟 App 或小程序，刷一次“我的包裹”，快照就会出现在这里。');
@@ -1140,20 +1071,17 @@ async function renderWidget(ctx) {
     };
   }
 
-  /* 小组件高度是固定的，行数必须按尺寸卡死，超了会挤在一起重叠：
-   * small 2 行、medium 4 行、large 8 行、extraLarge 10 行，多余的折进左列。 */
   const slots = family === 'systemSmall' ? 2
     : family === 'systemMedium' ? 4
     : family === 'systemLarge' ? 8
     : family === 'systemExtraLarge' ? 10 : 4;
-  /* 行按待取 → 在途 → 已取排，已取也显示（不然状态修对了反而看不见包裹）。 */
+
   const rows = [];
   pending.slice(0, slots).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
   transit.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
   delivered.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
   const hidden = all.length - rows.length;
 
-  /* 小尺寸：上下结构，文字全部左对齐 */
   if (family === 'systemSmall') {
     const footerParts = [];
     if (pending.length) footerParts.push('待取 ' + pending.length);
@@ -1185,9 +1113,6 @@ async function renderWidget(ctx) {
     };
   }
 
-  /* 中/大/超大：参考原版 App 的版式——左列汇总（待取件大数字、在途、
-   * 已取、同步时间），右列包裹列表（公司小方块 + 名称/站点 + 右边小字状态）。
-   * 中尺寸左列比右列矮一截，整列在行里上下居中，不然待取件那块看着靠上。 */
   const railChildren = [
     { type: 'text', text: '待取件', font: { size: 12, weight: 'medium' }, textColor: textMain },
     { type: 'text', text: String(pending.length), font: { size: 30, weight: 'bold' }, textColor: textMain },
@@ -1201,7 +1126,7 @@ async function renderWidget(ctx) {
     children: railChildren,
   };
   const list = {
-    type: 'stack', direction: 'column', flex: 3, gap: 6,
+    type: 'stack', direction: 'column', flex: 3, gap: 6, alignItems: 'start',
     children: rows.length ? rows : [{ type: 'text', text: '暂无在途或待取包裹', font: { size: 12 }, textColor: textSub }],
   };
   return {
@@ -1211,8 +1136,6 @@ async function renderWidget(ctx) {
     refreshAfter,
   };
 }
-
-/* ---------------- 手动状态查询（generic，点运行就报一次现状） ---------------- */
 
 async function onStatus(ctx) {
   const lines = ['包裹助手 ' + PARCEL_VERSION];
@@ -1228,9 +1151,7 @@ async function onStatus(ctx) {
   }
   const check = loadJSON(ctx, CHECK_KEY) || {};
   if (check.last) lines.push('上次后台刷新：' + String(check.last).slice(0, 40));
-  /* 标题调试：印每单标题/公司/最新动态的首字码点。直接看是看不出来
-   * 隐形字符的（JSON 也不会把它转义成 \uXXXX），但首字码点会现形：
-   * 正常标题首字是中文（赫=8d6b），带隐形前缀时首字会是 2800/200b 之类。 */
+
   if (snap && Array.isArray(snap.parcels) && snap.parcels.length) {
     const codeOf = (s) => { const t = String(s || ''); return t ? 'U+' + t.charCodeAt(0).toString(16) : '-'; };
     const dbg = snap.parcels.map((p) => (String(p.no || '').slice(-4) || '??') + ':标题首字' + codeOf(p.title) + '/公司首字' + codeOf(p.company) + '/动态首字' + codeOf(p.latest)).join(' | ');
@@ -1239,13 +1160,11 @@ async function onStatus(ctx) {
   notify(ctx, '包裹助手状态', lines.join('\n'));
 }
 
-/* ---------------- 入口 ---------------- */
-
 export default async function (ctx) {
   try {
     if (ctx && ctx.widgetFamily) return renderWidget(ctx);
     if (ctx && ctx.response) return onCapture(ctx);
     if (ctx && ctx.cron !== undefined && ctx.cron !== null) { await onSchedule(ctx); return; }
     await onStatus(ctx);
-  } catch (e) { /* 模块自己不出错、不挡请求 */ }
+  } catch (e) {  }
 }
