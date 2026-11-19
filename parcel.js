@@ -1,53 +1,48 @@
 /**
- * 包裹助手（Egern 版）v15
+ * 包裹助手（Egern 版）v19
  *
  * 数据来源（按优先级）：
- *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
+ *   1) 体捕获（唯一主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
  *      “我的包裹”，响应脚本直接读列表响应体存快照——不用登录凭证、
  *      不用手动填单号，到站就有取件码。抓取本身是静默的，只在有新包裹 /
  *      到站 / 签收 / 出码时才弹通知。
- *   2) MTOP 轮询（后台自动刷新）：需要淘宝登录凭证 _m_h5_tk。
- *      凭证抓取默认关闭（模块设置里的“抓取登录凭证”开关），打开后
- *      刷淘宝/菜鸟时存下凭证，定时脚本每 30 分钟调一次菜鸟接口；
- *      后台刷新只在开关开着时跑，关掉就停——开关要一直开着。
+ *   2) MTOP 轮询（已停用，v18 关掉）：v17 上机后 11:30 定时仍报
+ *      FAIL_SYS_SESSION_EXPIRED——11:02 菜鸟抓到的新鲜 token 到 11:30
+ *      已过期，后台续不上（新 token 只在 Set-Cookie 里下发，fetch 读不到，
+ *      Egern 没有 WebView；原版作者也说“暂时做不到无后台刷新”）。定时
+ *      不再调 MTOP、不再报“后台刷新失败”，小组件也不再拉 MTOP；凭证抓取
+ *      也一并停了（没人用了，不再存淘宝 cookie）。取件码只靠打开菜鸟抓取。
  *   3) 快递鸟 8001（可选补充）：填了密钥和运单号才能用，给没有菜鸟
  *      列表的单号查详细轨迹；运单号变了会强制查一次，和菜鸟快照合并，
  *      不会丢掉菜鸟的包裹。
+ *   4) v19 抓取收紧：别人手机上抓到了假包裹（通知标题是 bindHighAuth、
+ *      待领取）——抓取原来所有淘宝 H5 / 菜鸟响应都解析，别的接口（账号
+ *      绑定类）的返回里也有列表结构，被当成包裹。现只认包裹列表接口
+ *      （queryPdsPackageDataList / querypackagelist.lightapp.get），且
+ *      没有运单号的条目直接丢掉（真包裹一定有运单号）。
  *
  * 快照统一形状：{ no, title, company, code, station, status, statusText,
  *   latest, arrivedAt, updatedAt }，status 是家族：arrived / delivered /
  *   transit / none。小组件与通知都只认这个形状。
  *
  * 入口（同一个文件）：
- *   http_response（parcel-capture）→ 读列表体 +（开关开时）存凭证
- *   schedule（parcel-refresh）→ MTOP 轮询，失败则快递鸟
- *   generic（parcel-widget）→ 小组件
+ *   http_response（parcel-capture）→ 读列表体存快照
+ *   schedule（parcel-refresh）→ 只剩快递鸟兜底（YAML 里已删定时入口）
+ *   generic（parcel-widget）→ 小组件，只渲染快照，不拉接口
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v17';
+const PARCEL_VERSION = 'v19';
 
-const APP_KEY = '12574478';
-const MTOP_HOST = 'https://h5api.m.taobao.com';
-const MTOP_LIST_API = 'mtop.cainiao.lpc.packageservice.queryPdsPackageDataList';
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
-const REFERER = 'https://h5.m.taobao.com/';
-const NEED_DYN = "{'needFindTemporality':true,'needAppointment':true}";
 
 const QUERY_URL = 'https://api.kdniao.com/Ebusiness/EbusinessOrderHandle.aspx';
 const AUTONUM_URL = 'https://www.kuaidi100.com/autonumber/autoComNum?resultv2=1&text=';
 const KD100_UA = UA;
 
 const SNAP_KEY = 'parcel.snapshot.v1';
-const COOKIES_KEY = 'parcel.cookies.v1';
-const CHECK_KEY = 'parcel.check.v1';
-const SWITCH_KEY = 'parcel.switch.v1';
 const SHIPPER_KEY = 'parcel.shippers.v1';
-const FLAG_KEY = 'parcel.flags.v1';
 const NOTED_KEY = 'parcel.noted.v1';
 const TRACKINGS_KEY = 'parcel.trackings.v1';
-const SNAP_TTL_MS = 60 * 1000;
-
-const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
 
 const DELIVERED_RE = /已签收|签收成功|已妥投|妥投|已代收|代收成功|已自提|自提成功|取件成功|已取件|已完成|派送完成|配送完成|已送达|已领取|已投递/;
 const PICKABLE = /待取件|已到站|已暂存|已存放|已放入|送达代收点|请及时取|请及时领取|凭取件码|待领取|已妥收|快递柜|驿站|代收点|待自提|待取货|已入柜|请凭码取件/;
@@ -148,14 +143,6 @@ function saveJSON(ctx, key, val) {
 function notify(ctx, title, body) {
   try { ctx.notify({ title, body }); } catch (e) {  }
 }
-function flagSet(ctx, flag) {
-  const f = loadJSON(ctx, FLAG_KEY) || {};
-  if (f[flag]) return true;
-  f[flag] = 1;
-  saveJSON(ctx, FLAG_KEY, f);
-  return false;
-}
-
 function notedCooldown(ctx, flag, ms) {
   const n = loadJSON(ctx, NOTED_KEY) || {};
   const t = n[flag];
@@ -163,34 +150,6 @@ function notedCooldown(ctx, flag, ms) {
   n[flag] = Date.now();
   saveJSON(ctx, NOTED_KEY, n);
   return false;
-}
-
-function cookieCaptureOn(ctx) {
-  const v = (ctx.env || {}).ENABLE_COOKIE_CAPTURE;
-  return v === true || String(v).toLowerCase() === 'true';
-}
-
-function pickCookies(values) {
-  const out = {};
-  const list = Array.isArray(values) ? values : (values ? [values] : []);
-  for (const raw of list) {
-    if (!raw) continue;
-    for (const part of String(raw).split(';')) {
-      const eq = part.indexOf('=');
-      if (eq <= 0) continue;
-      const name = part.slice(0, eq).trim();
-      const value = part.slice(eq + 1).trim();
-      if (WANT_COOKIES.indexOf(name) !== -1 && value) out[name] = value;
-    }
-  }
-  return out;
-}
-function tokenOf(cookies) {
-  const v = cookies['_m_h5_tk'] || '';
-  return String(v).split('_')[0];
-}
-function cookieHeader(cookies) {
-  return Object.keys(cookies).map(k => k + '=' + cookies[k]).join('; ');
 }
 
 const CODE_PLACEHOLDER = ['needsms', 'need_sms', '-1', '0', '', 'null', 'none'];
@@ -316,6 +275,7 @@ function trimPackage(p) {
   const resolved = signedFlag ? 'delivered' : familyOf(rawStatus, code);
   const station = stripEdge(pickStr(st, 'pointName', 'point_name', 'stationName', 'name'));
   const no = pickStr(p, 'mailNo', 'mail_no');
+  if (!no) return null;
   const rawCarrier = pickStr(p, 'cpName', 'cp_name', 'companyName')
     || pickStr(p, 'cpCode', 'cp_code')
     || scanField(p, /company|express|carrier|brand|^cp/i, /status|state|sign|desc|text|time|date|no|number|mobile|phone/i, 0);
@@ -508,31 +468,8 @@ function displayTitle(p) {
 }
 
 async function onCapture(ctx) {
-
-  if (cookieCaptureOn(ctx)) {
-    let reqCookie = null;
-    let setCookies = [];
-    try { reqCookie = ctx.request.headers.get('cookie'); } catch (e) {  }
-    try { setCookies = ctx.response.headers.getAll('set-cookie') || []; } catch (e) {  }
-    const found = {};
-    Object.assign(found, pickCookies(reqCookie));
-    Object.assign(found, pickCookies(setCookies));
-    const names = Object.keys(found);
-    if (names.length) {
-      const stored = loadJSON(ctx, COOKIES_KEY) || {};
-      let changed = false;
-      for (const k of names) {
-        if (stored[k] !== found[k]) { stored[k] = found[k]; changed = true; }
-      }
-      if (changed) {
-        saveJSON(ctx, COOKIES_KEY, stored);
-        if (found['_m_h5_tk']) saveJSON(ctx, SWITCH_KEY, { on: true, at: Date.now() });
-        if (found['_m_h5_tk'] && !flagSet(ctx, 'tk-noted')) {
-          notify(ctx, '已抓到登录凭证', '后台自动刷新已就绪；开关请一直开着，关掉后后台刷新就停了');
-        }
-      }
-    }
-  }
+  const url = String((ctx.request && ctx.request.url) || '').toLowerCase();
+  if (url && url.indexOf('querypdspackagedatalist') === -1 && url.indexOf('querypackagelist.lightapp.get') === -1) return undefined;
 
   let data = null;
   try {
@@ -568,122 +505,10 @@ async function onCapture(ctx) {
   return undefined;
 }
 
-function retOf(j, txt) {
-  if (j && Array.isArray(j.ret)) return j.ret.join(';');
-  if (j && typeof j.ret === 'string') return j.ret;
-  if (j && j.ret) return String(j.ret);
-  return (txt || '').slice(0, 80) || '无响应';
-}
-
-async function mtopList(ctx, cookies) {
-  const data = JSON.stringify({
-    pageSize: 50, currentPage: 1,
-    needTemporality: false, needDynInfo: NEED_DYN,
-  });
-  const t = Date.now();
-  const sign = md5Hex(tokenOf(cookies) + '&' + t + '&' + APP_KEY + '&' + data);
-  const url = MTOP_HOST + '/h5/' + MTOP_LIST_API.toLowerCase() + '/1.0/'
-    + '?jsv=2.7.4&appKey=' + APP_KEY + '&t=' + t + '&sign=' + sign
-    + '&api=' + encodeURIComponent(MTOP_LIST_API) + '&v=1.0&type=originaljson&dataType=json'
-    + '&data=' + encodeURIComponent(data);
-  const res = await ctx.http.get(url, {
-    headers: { Cookie: cookieHeader(cookies), 'User-Agent': UA, Referer: REFERER, Accept: 'application/json' },
-    timeout: 15000,
-  });
-  const txt = await res.text();
-  let j = null;
-  try { j = JSON.parse(txt); } catch (e) {  }
-  return { res, txt, j };
-}
-
-async function refreshToken(ctx, cookies) {
-  const bare = {};
-  for (const k of Object.keys(cookies || {})) if (k !== '_m_h5_tk') bare[k] = cookies[k];
-  let r;
-  try { r = await mtopList(ctx, bare); } catch (e) { return null; }
-  let setCookies = [];
-  try { setCookies = (r && r.res && r.res.headers.getAll('set-cookie')) || []; } catch (e) {  }
-  const fresh = pickCookies(setCookies);
-  if (fresh['_m_h5_tk']) {
-    const merged = Object.assign({}, cookies, fresh);
-    saveJSON(ctx, COOKIES_KEY, merged);
-    return merged;
-  }
-  return null;
-}
-
-async function pollMtop(ctx) {
-  const cookies = loadJSON(ctx, COOKIES_KEY) || {};
-  if (!cookies['_m_h5_tk']) return { error: 'nocookie' };
-  let r;
-  try {
-    r = await mtopList(ctx, cookies);
-  } catch (e) {
-    return { error: '请求失败：' + String((e && e.message) || e).slice(0, 60) };
-  }
-  let ret = retOf(r.j, r.txt);
-  const upper = ret.toUpperCase();
-  if (upper.indexOf('SUCCESS') === -1
-      && (upper.indexOf('TOKEN_EXPIRED') !== -1 || upper.indexOf('TOKEN_EXOIRED') !== -1
-      || upper.indexOf('TOKEN_EMPTY') !== -1 || upper.indexOf('FAIL_SYS_TOKEN') !== -1
-      || upper.indexOf('SESSION_EXPIRED') !== -1)) {
-    try {
-      const fresh = await refreshToken(ctx, cookies);
-      if (fresh) {
-        const r2 = await mtopList(ctx, fresh);
-        const ret2 = retOf(r2.j, r2.txt);
-        if (ret2.toUpperCase().indexOf('SUCCESS') !== -1) {
-          r = r2;
-          ret = ret2;
-        } else {
-          ret = ret2;
-        }
-      }
-    } catch (e) {  }
-  }
-  if (ret.toUpperCase().indexOf('SUCCESS') !== -1) {
-    const list = findList(mtopData(r.j));
-    const fresh = (list || []).map(trimPackage).filter(Boolean);
-    const prevSnap = loadJSON(ctx, SNAP_KEY);
-    const snap = mergeSnapshot(prevSnap, fresh, kdniaoNos(ctx.env));
-    saveJSON(ctx, SNAP_KEY, snap);
-    notifyTransitions(ctx, prevSnap, snap);
-    return { ok: true, count: snap.count };
-  }
-  return { error: '菜鸟接口返回：' + ret.slice(0, 60) };
-}
-
 async function onSchedule(ctx) {
   const env = ctx.env || {};
-  const check = loadJSON(ctx, CHECK_KEY) || {};
-  saveJSON(ctx, SWITCH_KEY, { on: cookieCaptureOn(ctx), at: Date.now() });
-
-  if (cookieCaptureOn(ctx)) {
-    const cookies = loadJSON(ctx, COOKIES_KEY) || {};
-    if (!cookies['_m_h5_tk']) {
-      if (!flagSet(ctx, 'nocookie-noted')) {
-        notify(ctx, '后台刷新还没凭证', '去淘宝 App 点一次订单 → 查看物流（H5），抓到登录凭证后即可后台自动刷新；不想用了就把开关关掉');
-      }
-
-    } else {
-      const r = await pollMtop(ctx);
-      if (r.ok) {
-        if (check.last !== 'ok') {
-          check.last = 'ok';
-          saveJSON(ctx, CHECK_KEY, check);
-          notify(ctx, '后台刷新已调通', '菜鸟“我的包裹”返回 ' + r.count + ' 个包裹');
-        }
-      } else if (r.error !== 'nocookie') {
-        const msg = r.error;
-        if (check.last !== msg) {
-          check.last = msg;
-          saveJSON(ctx, CHECK_KEY, check);
-          notify(ctx, '后台刷新失败', msg);
-        }
-      }
-    }
-  }
-
+  // v18：MTOP 后台刷新已停用（11:30 实测证实走不通），定时不再调接口、
+  // 不再报失败；只剩快递鸟兜底（没配 key 时什么都不做）。
   if (env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY && env.TRACKINGS) {
     trackingsChanged(ctx);
     const prevSnap = loadJSON(ctx, SNAP_KEY) || { parcels: [] };
@@ -1028,22 +853,8 @@ async function renderWidget(ctx) {
       if (prevSnap0) notifyTransitions(ctx, prevSnap0, merged);
     } catch (e) {  }
   }
-  const stale = !snap || !Array.isArray(snap.parcels) || Date.now() - (snap.updatedAt || 0) > SNAP_TTL_MS;
-  if (stale) {
-    try {
-      if ((loadJSON(ctx, COOKIES_KEY) || {})['_m_h5_tk']) {
-        const r = await pollMtop(ctx);
-        if (r.ok) snap = loadJSON(ctx, SNAP_KEY);
-      } else if (env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY && env.TRACKINGS) {
-        const prevByNo = {};
-        ((snap && snap.parcels) || []).forEach((p) => { prevByNo[p.no] = p; });
-        const fresh = await refreshKdniao(ctx, env, prevByNo);
-        const merged = mergeKdniaoInto(snap, fresh.parcels);
-        saveJSON(ctx, SNAP_KEY, merged);
-        snap = merged;
-      }
-    } catch (e) {  }
-  }
+  // v18：小组件只渲染快照，不再拉 MTOP（后台刷新已证实走不通）；
+  // 快照过期也不主动刷，等下次打开菜鸟抓取时更新。
   if (!snap || !Array.isArray(snap.parcels) || !snap.parcels.length) {
     return hint('打开菜鸟 App 或小程序，刷一次“我的包裹”，快照就会出现在这里。');
   }
@@ -1156,19 +967,13 @@ async function renderWidget(ctx) {
 
 async function onStatus(ctx) {
   const lines = ['包裹助手 ' + PARCEL_VERSION];
-  const sw = loadJSON(ctx, SWITCH_KEY);
-  lines.push('凭证抓取开关：' + (sw ? (sw.on ? '开' : '关') + '（' + syncLabel(sw.at) + '确认）' : '未知（等一次抓取或定时跑过）'));
-  const cookies = loadJSON(ctx, COOKIES_KEY) || {};
-  lines.push('登录凭证：' + (cookies['_m_h5_tk'] ? '已抓到' : '未抓到')
-    + (Object.keys(cookies).length ? '（已存 ' + Object.keys(cookies).join('、') + '）' : ''));
+  lines.push('后台刷新：已关（MTOP 走不通；打开菜鸟刷“我的包裹”同步取件码）');
   const snap = loadJSON(ctx, SNAP_KEY);
   if (snap && snap.count > 0) {
     lines.push('包裹快照：' + snap.count + ' 个，其中 ' + (snap.withCode || 0) + ' 个有取件码（' + syncLabel(snap.updatedAt) + '）');
   } else {
     lines.push('包裹快照：无（打开菜鸟刷一次“我的包裹”）');
   }
-  const check = loadJSON(ctx, CHECK_KEY) || {};
-  if (check.last) lines.push('上次后台刷新：' + String(check.last).slice(0, 40));
 
   if (snap && Array.isArray(snap.parcels) && snap.parcels.length) {
     const codeOf = (s) => { const t = String(s || ''); return t ? 'U+' + t.charCodeAt(0).toString(16) : '-'; };
