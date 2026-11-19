@@ -24,11 +24,11 @@
  *   generic（parcel-widget）→ 小组件
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v15';
+const PARCEL_VERSION = 'v16';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
-const MTOP_LIST_API = 'mtop.cainiao.lpc.packageservice.queryPdsPackageDataList';
+const MTOP_LIST_API = 'mtop.cainiao.lpc.packageservice.querypackagelist.lightapp.get';
 const REFRESH_URL = 'https://h5.m.taobao.com/';
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 const REFERER = 'https://h5.m.taobao.com/';
