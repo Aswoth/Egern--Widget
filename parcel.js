@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v14
+ * 包裹助手（Egern 版）v15
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -24,7 +24,7 @@
  *   generic（parcel-widget）→ 小组件
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v14';
+const PARCEL_VERSION = 'v15';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -41,11 +41,12 @@ const KD100_UA = UA;
 const SNAP_KEY = 'parcel.snapshot.v1';
 const COOKIES_KEY = 'parcel.cookies.v1';
 const CHECK_KEY = 'parcel.check.v1';
+const SWITCH_KEY = 'parcel.switch.v1';
 const SHIPPER_KEY = 'parcel.shippers.v1';
 const FLAG_KEY = 'parcel.flags.v1';
 const NOTED_KEY = 'parcel.noted.v1';
 const TRACKINGS_KEY = 'parcel.trackings.v1';
-const SNAP_TTL_MS = 30 * 60 * 1000;
+const SNAP_TTL_MS = 60 * 1000;
 
 const WANT_COOKIES = ['_m_h5_tk', 'cookie2', 't', '_tb_token_', 'cna', 'xlly_s'];
 
@@ -526,8 +527,9 @@ async function onCapture(ctx) {
       }
       if (changed) {
         saveJSON(ctx, COOKIES_KEY, stored);
+        if (found['_m_h5_tk']) saveJSON(ctx, SWITCH_KEY, { on: true, at: Date.now() });
         if (found['_m_h5_tk'] && !flagSet(ctx, 'tk-noted')) {
-          notify(ctx, '已抓到登录凭证', '后台自动刷新已就绪；不想继续抓了，可以把“抓取登录凭证”开关关掉');
+          notify(ctx, '已抓到登录凭证', '后台自动刷新已就绪；开关请一直开着，关掉后后台刷新就停了');
         }
       }
     }
@@ -625,7 +627,8 @@ async function pollMtop(ctx) {
   const upper = ret.toUpperCase();
   if (upper.indexOf('SUCCESS') === -1
       && (upper.indexOf('TOKEN_EXPIRED') !== -1 || upper.indexOf('TOKEN_EXOIRED') !== -1
-      || upper.indexOf('TOKEN_EMPTY') !== -1 || upper.indexOf('FAIL_SYS_TOKEN') !== -1)) {
+      || upper.indexOf('TOKEN_EMPTY') !== -1 || upper.indexOf('FAIL_SYS_TOKEN') !== -1
+      || upper.indexOf('SESSION_EXPIRED') !== -1)) {
     try {
       const fresh = await refreshToken(ctx, cookies);
       if (fresh) {
@@ -655,6 +658,7 @@ async function pollMtop(ctx) {
 async function onSchedule(ctx) {
   const env = ctx.env || {};
   const check = loadJSON(ctx, CHECK_KEY) || {};
+  saveJSON(ctx, SWITCH_KEY, { on: cookieCaptureOn(ctx), at: Date.now() });
 
   if (cookieCaptureOn(ctx)) {
     const cookies = loadJSON(ctx, COOKIES_KEY) || {};
@@ -956,29 +960,35 @@ function parcelRow(p, textMain, textSub) {
   const mark = statusMark(p);
   return {
     type: 'stack',
-    direction: 'column',
-    alignItems: 'start',
-    gap: 2,
+    direction: 'row',
+    alignItems: 'center',
+    gap: 8,
     children: [
+      logoTile(p, textMain),
       {
         type: 'stack',
-        direction: 'row',
-        alignItems: 'center',
-        gap: 8,
+        direction: 'column',
+        flex: 1,
+        alignItems: 'start',
+        gap: 2,
         children: [
-          logoTile(p, textMain),
-          { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, textAlign: 'left', maxLines: 1, flex: 1 },
-          { type: 'text', text: mark.text, font: { size: 11, weight: 'bold' }, textColor: mark.color },
-        ],
-      },
-      {
-        type: 'stack',
-        direction: 'row',
-        alignItems: 'center',
-        gap: 8,
-        children: [
-          { type: 'spacer', length: 26 },
-          { type: 'text', text: sub, font: { size: 10 }, textColor: textSub, textAlign: 'left', maxLines: 1, flex: 1 },
+          {
+            type: 'stack',
+            direction: 'row',
+            alignItems: 'center',
+            children: [
+              { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, textAlign: 'left', maxLines: 1, flex: 1 },
+              { type: 'text', text: mark.text, font: { size: 11, weight: 'bold' }, textColor: mark.color },
+            ],
+          },
+          {
+            type: 'stack',
+            direction: 'row',
+            alignItems: 'center',
+            children: [
+              { type: 'text', text: sub, font: { size: 10 }, textColor: textSub, textAlign: 'left', maxLines: 1, flex: 1 },
+            ],
+          },
         ],
       },
     ],
@@ -990,7 +1000,7 @@ async function renderWidget(ctx) {
   const family = ctx.widgetFamily || 'systemLarge';
   const textMain = { light: '#1C1C1E', dark: '#F2F2F7' };
   const textSub = { light: '#8A8A8E', dark: '#98989F' };
-  const refreshAfter = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const refreshAfter = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
   const hint = (body) => ({
     type: 'widget',
@@ -1023,7 +1033,7 @@ async function renderWidget(ctx) {
   const stale = !snap || !Array.isArray(snap.parcels) || Date.now() - (snap.updatedAt || 0) > SNAP_TTL_MS;
   if (stale) {
     try {
-      if (cookieCaptureOn(ctx) && (loadJSON(ctx, COOKIES_KEY) || {})['_m_h5_tk']) {
+      if ((loadJSON(ctx, COOKIES_KEY) || {})['_m_h5_tk']) {
         const r = await pollMtop(ctx);
         if (r.ok) snap = loadJSON(ctx, SNAP_KEY);
       } else if (env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY && env.TRACKINGS) {
@@ -1148,7 +1158,8 @@ async function renderWidget(ctx) {
 
 async function onStatus(ctx) {
   const lines = ['包裹助手 ' + PARCEL_VERSION];
-  lines.push('凭证抓取开关：' + (cookieCaptureOn(ctx) ? '开' : '关'));
+  const sw = loadJSON(ctx, SWITCH_KEY);
+  lines.push('凭证抓取开关：' + (sw ? (sw.on ? '开' : '关') + '（' + syncLabel(sw.at) + '确认）' : '未知（等一次抓取或定时跑过）'));
   const cookies = loadJSON(ctx, COOKIES_KEY) || {};
   lines.push('登录凭证：' + (cookies['_m_h5_tk'] ? '已抓到' : '未抓到')
     + (Object.keys(cookies).length ? '（已存 ' + Object.keys(cookies).join('、') + '）' : ''));
