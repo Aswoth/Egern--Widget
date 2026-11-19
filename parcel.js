@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v12
+ * 包裹助手（Egern 版）v14
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -24,7 +24,7 @@
  *   generic（parcel-widget）→ 小组件
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v12';
+const PARCEL_VERSION = 'v14';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -933,6 +933,8 @@ function logoTile(p, textMain) {
     backgroundColor: { light: '#E9E9EE', dark: '#48484A' },
     borderRadius: 6,
     padding: [4, 6, 4, 6],
+    width: 26,
+    height: 26,
     children: [
       { type: 'text', text: ch, font: { size: 13, weight: 'bold' }, textColor: textMain },
     ],
@@ -949,29 +951,36 @@ function statusMark(p) {
 function parcelRow(p, textMain, textSub) {
   const st = stateOfParcel(p);
   const main = stripEdge(st === 'arrived' && p.code ? p.code : displayTitle(p));
-
   const mainHasCompany = !p.title && p.company && !(st === 'arrived' && p.code);
   const sub = stripEdge((mainHasCompany ? '' : (p.company ? stripEdge(p.company) + ' · ' : '')) + stripEdge(p.latest || '暂无轨迹'));
   const mark = statusMark(p);
   return {
     type: 'stack',
-    direction: 'row',
-    alignItems: 'center',
-    gap: 8,
+    direction: 'column',
+    alignItems: 'start',
+    gap: 2,
     children: [
-      logoTile(p, textMain),
       {
         type: 'stack',
-        direction: 'column',
-        flex: 1,
-        gap: 2,
-        alignItems: 'start',
+        direction: 'row',
+        alignItems: 'center',
+        gap: 8,
         children: [
-          { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, textAlign: 'left', maxLines: 1 },
-          { type: 'text', text: sub, font: { size: 10 }, textColor: textSub, textAlign: 'left', maxLines: 1 },
+          logoTile(p, textMain),
+          { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, textAlign: 'left', maxLines: 1, flex: 1 },
+          { type: 'text', text: mark.text, font: { size: 11, weight: 'bold' }, textColor: mark.color },
         ],
       },
-      { type: 'text', text: mark.text, font: { size: 11, weight: 'bold' }, textColor: mark.color },
+      {
+        type: 'stack',
+        direction: 'row',
+        alignItems: 'center',
+        gap: 8,
+        children: [
+          { type: 'spacer', length: 26 },
+          { type: 'text', text: sub, font: { size: 10 }, textColor: textSub, textAlign: 'left', maxLines: 1, flex: 1 },
+        ],
+      },
     ],
   };
 }
@@ -1126,13 +1135,13 @@ async function renderWidget(ctx) {
     children: railChildren,
   };
   const list = {
-    type: 'stack', direction: 'column', flex: 3, gap: 6, alignItems: 'start',
+    type: 'stack', direction: 'column', flex: 3, gap: (family === 'systemLarge' || family === 'systemExtraLarge') ? 10 : 6, alignItems: 'start',
     children: rows.length ? rows : [{ type: 'text', text: '暂无在途或待取包裹', font: { size: 12 }, textColor: textSub }],
   };
   return {
     type: 'widget',
     padding: [12, 14, 10, 14],
-    children: [{ type: 'stack', direction: 'row', gap: 12, alignItems: family === 'systemMedium' ? 'center' : 'start', children: [rail, list] }],
+    children: [{ type: 'stack', direction: 'row', gap: 12, alignItems: 'center', children: [rail, list] }],
     refreshAfter,
   };
 }
