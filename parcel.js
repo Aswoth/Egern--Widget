@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v20
+ * 包裹助手（Egern 版）v21
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（唯一主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -31,7 +31,7 @@
  *   generic（parcel-widget）→ 小组件，只渲染快照，不拉接口
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v20';
+const PARCEL_VERSION = 'v21';
 
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
@@ -142,6 +142,10 @@ function saveJSON(ctx, key, val) {
 }
 function notify(ctx, title, body) {
   try { ctx.notify({ title, body }); } catch (e) {  }
+}
+function notifyCaptureOn(ctx) {
+  const v = (ctx.env || {}).NOTIFY_CAPTURE;
+  return v !== 'false' && v !== false;
 }
 function notedCooldown(ctx, flag, ms) {
   const n = loadJSON(ctx, NOTED_KEY) || {};
@@ -489,6 +493,7 @@ async function onCapture(ctx) {
     const list = findList(d);
     if (list) {
       const fresh = list.map(trimPackage).filter(Boolean);
+      if (!fresh.length) return { body: data };
       const prevSnap = loadJSON(ctx, SNAP_KEY);
       const snap = mergeSnapshot(prevSnap, fresh, kdniaoNos(ctx.env));
       saveJSON(ctx, SNAP_KEY, snap);
@@ -496,8 +501,11 @@ async function onCapture(ctx) {
       const firstSnap = !prevSnap || !prevSnap.updatedAt;
       if (firstSnap) {
         notify(ctx, '已同步 ' + snap.count + ' 个包裹', '其中 ' + snap.withCode + ' 个有取件码');
-      } else if (prevSnap.sig !== snap.sig) {
-        notifyTransitions(ctx, prevSnap, snap);
+      } else {
+        if (prevSnap.sig !== snap.sig) notifyTransitions(ctx, prevSnap, snap);
+        if (notifyCaptureOn(ctx) && !notedCooldown(ctx, 'capture-count', 5 * 60 * 1000)) {
+          notify(ctx, '抓取到 ' + snap.count + ' 个包裹', '其中 ' + snap.withCode + ' 个有取件码');
+        }
       }
     }
     return { body: data };
