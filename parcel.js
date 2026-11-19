@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v10
+ * 包裹助手（Egern 版）v11
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -25,7 +25,7 @@
  *   generic（parcel-status）→ 手动查一次现状
  */
 
-const PARCEL_VERSION = 'v10';
+const PARCEL_VERSION = 'v11';
 
 const APP_KEY = '12574478';
 const MTOP_HOST = 'https://h5api.m.taobao.com';
@@ -1035,8 +1035,8 @@ function parcelRow(p, textMain, textSub) {
         gap: 2,
         alignItems: 'start',
         children: [
-          { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, maxLines: 1 },
-          { type: 'text', text: sub, font: { size: 10 }, textColor: textSub, maxLines: 1 },
+          { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, textAlign: 'left', maxLines: 1 },
+          { type: 'text', text: sub, font: { size: 10 }, textColor: textSub, textAlign: 'left', maxLines: 1 },
         ],
       },
       { type: 'text', text: mark.text, font: { size: 11, weight: 'bold' }, textColor: mark.color },
