@@ -1,6 +1,6 @@
 name: 包裹助手
 
-description: 打开菜鸟 App 或小程序刷一次“我的包裹”，就自动同步包裹列表：到站显示取件码、到站/签收发通知、桌面小组件显示待取和在途。登录凭证抓取默认关闭，需要后台自动刷新时再打开开关，开关要一直开着才会在后台刷新。（v16：改调小程序同款列表接口 querypackagelist.lightapp.get，之前调的 queryPdsPackageDataList 一直报 SESSION 失效）
+description: 打开菜鸟 App 或小程序刷一次“我的包裹”，就自动同步包裹列表：到站显示取件码、到站/签收发通知、桌面小组件显示待取和在途。登录凭证抓取默认关闭，需要后台自动刷新时再打开开关，开关要一直开着才会在后台刷新。（v17：续凭证改成直接调 MTOP 接口触发网关下发新 token——原版靠 WebView 续，Egern 没有；首页 GET 不会下发。接口换回 Pds，lightapp 是小程序原生接口、H5 网关不认）
 
 author: pin
 
