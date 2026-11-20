@@ -1270,9 +1270,7 @@ export default async function (ctx) {
       ],
       merge(
         {
-          padding: [2, 5],
-          backgroundColor: fill,
-          borderRadius: 8
+          padding: [2, 5]
         },
         extra
       )
@@ -1292,8 +1290,6 @@ export default async function (ctx) {
         width: 37,
         height: 7.2,
         padding: [0.7, 2.5],
-        backgroundColor: fill,
-        borderRadius: 4.8,
         alignItems: "center"
       }
     );
@@ -1326,9 +1322,7 @@ export default async function (ctx) {
       {
         width: side,
         height: side,
-        padding: 3,
-        backgroundColor: fill,
-        borderRadius: 12
+        padding: 3
       }
     );
   }
@@ -1632,9 +1626,7 @@ export default async function (ctx) {
       {
         width: 36,
         height: 36,
-        padding: 2,
-        backgroundColor: C.purpleSoft,
-        borderRadius: 11
+        padding: 2
       }
     );
   }
@@ -2215,26 +2207,11 @@ function palette(glass) {
     dark: dark
   });
 
-  // glass 模式：强调色/柔和底色/品牌色直接用浅色纯色字符串。
-  // 实测：深色下 Egern 对 {light,dark} 自适应色解析不可靠——
-  // 用于图标颜色或 backgroundColor/backgroundGradient 时会整体变纯白
-  // （图标看不见、底色成白块），而 rgba 与文字色能正确解析。
-  // 浅色值在深色壁纸上正好是原版浅色模式的效果（图一），图标清晰可见。
-  // 注意：十六进制纯色字符串在深色下同样变白（用户 12:39 实测），
-  // 只有 rgba() 能正确解析，所以这里把浅色 hex 转成 rgba()。
-  // 注意2：rgba() 同样没变化（用户 12:43 要求换办法）。
-  // 改走单色方案：柔和底色用与卡片一致的半透明白，图标/文字用纯白——
-  // 这两路在深色下已被证实能正常渲染（卡片灰底、白字），先保证看得见。
-  const hexToRgba = (hex) => {
-    const m = /^#([0-9a-fA-F]{6})$/.exec(String(hex || "").trim());
-    if (!m) return hex;
-    const r = parseInt(m[1].slice(0, 2), 16);
-    const g = parseInt(m[1].slice(2, 4), 16);
-    const b = parseInt(m[1].slice(4, 6), 16);
-    return "rgba(" + r + "," + g + "," + b + ",1)";
-  };
-  const fix = (light, dark) => glass ? "rgba(255,255,255,0.12)" : adaptive(light, dark);
-  const fixTone = (light, dark) => glass ? "rgba(255,255,255,1)" : adaptive(light, dark);
+  // 色块已拿掉（iconBox/pill/proxyTagLine/flagBox 不再画底色，只留图标和字），
+  // 所以强调色/品牌色直接用回原版自适应色：
+  // 浅色下渲染彩色（图一效果），深色下渲染白色——
+  // 没有底色挡着，白图标/白字在深色壁纸和灰卡片上都看得见。
+  // 之前单色方案（glass 下强制白字灰底）错在浅色下也白字，白底上全隐形。
 
   return {
     root: adaptive("#E3EAF5", "#07101F"),
@@ -2267,34 +2244,34 @@ function palette(glass) {
     subtext: adaptive("#4E617F", "#BBC8E0"),
     muted: adaptive("#74839A", "#8694AE"),
 
-    blue: fixTone("#2E74D2", "#70AEFF"),
-    blueSoft: fix("#DDEAFF", "#183B71"),
+    blue: adaptive("#2E74D2", "#70AEFF"),
+    blueSoft: adaptive("#DDEAFF", "#183B71"),
 
-    purple: fixTone("#7C63D8", "#B09AFF"),
-    purpleSoft: fix("#EAE3FF", "#31275A"),
+    purple: adaptive("#7C63D8", "#B09AFF"),
+    purpleSoft: adaptive("#EAE3FF", "#31275A"),
 
-    green: fixTone("#229B62", "#58D79D"),
-    greenSoft: fix("#DDF7E8", "#163F34"),
+    green: adaptive("#229B62", "#58D79D"),
+    greenSoft: adaptive("#DDF7E8", "#163F34"),
 
-    amber: fixTone("#B9821D", "#FFC866"),
-    amberSoft: fix("#FFF0D0", "#503918"),
+    amber: adaptive("#B9821D", "#FFC866"),
+    amberSoft: adaptive("#FFF0D0", "#503918"),
 
-    red: fixTone("#D64A59", "#FF7D88"),
-    redSoft: fix("#FFE2E6", "#4A232C"),
+    red: adaptive("#D64A59", "#FF7D88"),
+    redSoft: adaptive("#FFE2E6", "#4A232C"),
 
-    netflix: fixTone("#E50914", "#FF505B"),
-    disney: fixTone("#2B76D8", "#7DB7FF"),
-    spotify: fixTone("#1DB954", "#1ED760"),
-    tiktok: fixTone("#111827", "#FFFFFF"),
-    youtube: fixTone("#FF0033", "#FF4B4B"),
-    prime: fixTone("#1978CC", "#7CB8FF"),
+    netflix: adaptive("#E50914", "#FF505B"),
+    disney: adaptive("#2B76D8", "#7DB7FF"),
+    spotify: adaptive("#1DB954", "#1ED760"),
+    tiktok: adaptive("#111827", "#FFFFFF"),
+    youtube: adaptive("#FF0033", "#FF4B4B"),
+    prime: adaptive("#1978CC", "#7CB8FF"),
 
-    chatgpt: fixTone("#1F2937", "#EAF0FF"),
-    claude: fixTone("#C86B35", "#FFA26E"),
-    gemini: fixTone("#6D6FE8", "#9EA9FF"),
-    deepseek: fixTone("#1D6FD8", "#61AAFF"),
-    grok: fixTone("#111827", "#F1F5FF"),
-    perplexity: fixTone("#0B88A8", "#63D9FF")
+    chatgpt: adaptive("#1F2937", "#EAF0FF"),
+    claude: adaptive("#C86B35", "#FFA26E"),
+    gemini: adaptive("#6D6FE8", "#9EA9FF"),
+    deepseek: adaptive("#1D6FD8", "#61AAFF"),
+    grok: adaptive("#111827", "#F1F5FF"),
+    perplexity: adaptive("#0B88A8", "#63D9FF")
   };
 }
 
