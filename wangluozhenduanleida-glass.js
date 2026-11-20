@@ -1615,10 +1615,12 @@ export default async function (ctx) {
     );
   }
 
+  // 国旗表情（🇯🇵）是系统画好的小图，白底在深色下成块，改不了局部透明；
+  // 改成国家代码白字（JP），信息还在、没有白块。服务小磁贴里的小国旗不动。
   function flagBox() {
     return row(
       [
-        text(flag(exit.countryCode) || "🌐", 22, "regular", C.text, {
+        text(String(exit.countryCode || "—").toUpperCase(), 13, "bold", C.text, {
           maxLines: 1,
           textAlign: "center"
         })
