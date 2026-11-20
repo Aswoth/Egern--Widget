@@ -1246,6 +1246,19 @@ export default async function (ctx) {
     );
   }
 
+  // 纯色渐变：Egern 对 backgroundColor 里的 {light,dark} 自适应色解析不可靠
+  // （深色下会直接渲染成纯白、图标和文字一起看不见），而 backgroundGradient
+  // 能正确解析（卡片的渐变就是这么正常显示的）。所以需要纯色背景的地方，
+  // 用起止同色的渐变来画，backgroundColor 只留作兜底。
+  function solidGradient(color) {
+    return {
+      type: "linear",
+      colors: [color, color],
+      startPoint: { x: 0, y: 0 },
+      endPoint: { x: 0, y: 1 }
+    };
+  }
+
   function pill(value, tone, fill, extra) {
     return row(
       [
@@ -1259,6 +1272,7 @@ export default async function (ctx) {
         {
           padding: [2, 5],
           backgroundColor: fill,
+          backgroundGradient: solidGradient(fill),
           borderRadius: 8
         },
         extra
@@ -1280,6 +1294,7 @@ export default async function (ctx) {
         height: 7.2,
         padding: [0.7, 2.5],
         backgroundColor: fill,
+        backgroundGradient: solidGradient(fill),
         borderRadius: 4.8,
         alignItems: "center"
       }
@@ -1315,6 +1330,7 @@ export default async function (ctx) {
         height: side,
         padding: 3,
         backgroundColor: fill,
+        backgroundGradient: solidGradient(fill),
         borderRadius: 12
       }
     );
@@ -1621,6 +1637,7 @@ export default async function (ctx) {
         height: 36,
         padding: 2,
         backgroundColor: C.purpleSoft,
+        backgroundGradient: solidGradient(C.purpleSoft),
         borderRadius: 11
       }
     );
@@ -1806,6 +1823,7 @@ export default async function (ctx) {
       height: 23,
       padding: 2,
       backgroundColor: C.tileIconBg,
+      backgroundGradient: solidGradient(C.tileIconBg),
       borderRadius: 7
     };
 
@@ -1966,6 +1984,7 @@ export default async function (ctx) {
         padding: [4, 4],
         gap: 4,
         backgroundColor: C.tileBg,
+        backgroundGradient: solidGradient(C.tileBg),
         borderRadius: 9,
         borderWidth: 1,
         borderColor: C.tileBorder
