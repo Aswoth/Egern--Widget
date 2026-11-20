@@ -1,0 +1,69 @@
+name: 包裹助手
+
+description: 打开菜鸟 App 或小程序刷一次“我的包裹”，就自动同步包裹列表：到站显示取件码、到站/签收发通知、桌面小组件显示待取和在途。（v29）
+
+author: pin
+
+icon: shippingbox.fill
+
+env_schema:
+  WIDGET_STYLE:
+    name: 样式
+    description: glass 透明（默认）/ classic 原版
+    default_value: 'glass'
+    options: ['glass', 'classic']
+
+  NOTIFY_CAPTURE:
+    name: 抓取通知
+    description: 打开后，每次打开菜鸟同步包裹都通知一次，显示抓到几个包裹；关掉就只在有新包裹/到站/签收时通知
+    default_value: 'true'
+    options: ['true', 'false']
+
+  KDNIAO_EBUSINESS_ID:
+    name: 快递鸟 EBusinessID
+    description: 可选补充。快递鸟官网（kdniao.com）注册后在后台查看，与 AppKey 成对使用；不填则只用菜鸟列表
+    default_value: ''
+
+  KDNIAO_APP_KEY:
+    name: 快递鸟 AppKey
+    description: 可选补充。与 EBusinessID 成对使用；没有可用套餐时查单会失败，先在快递鸟后台确认套餐
+    default_value: ''
+
+  TRACKINGS:
+    name: 运单号
+    description: 可选补充。只在快递鸟兜底时用，一行一个，格式：运单号|备注，如 SF1234567890|耳机；多条用换行或分号隔开
+    default_value: ''
+
+  PHONE_LAST4:
+    name: 手机号后四位
+    description: 可选补充。顺丰/中通/京东快递鸟查单需要，填收件人手机号后四位；其他快递不用填
+    default_value: ''
+
+mitm:
+  hostnames:
+    - h5api.m.taobao.com
+    - "*.cainiao.com"
+
+scriptings:
+
+- http_response:
+    name: parcel-capture
+    match: "^https://(h5api\\.m\\.taobao\\.com|[^/]*\\.cainiao\\.com)/"
+    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/js/parcel.js
+    body_required: true
+    timeout: 10
+
+- generic:
+    name: parcel-widget
+    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/js/parcel.js
+    timeout: 30
+
+- generic:
+    name: parcel-status
+    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/js/parcel.js
+    timeout: 30
+
+widgets:
+
+- name: 包裹助手
+  script_name: parcel-widget

@@ -1,0 +1,29 @@
+# Source: https://raw.githubusercontent.com/lylywayr/NetWork-Module/main/Egern/%E7%BD%91%E7%BB%9C%E8%AF%8A%E6%96%AD%E9%9B%B7%E8%BE%BE/%E7%BD%91%E7%BB%9C%E8%AF%8A%E6%96%AD%E9%9B%B7%E8%BE%BE.js
+# Author: lylywayr | License: 未声明许可证
+# Egern adaptation: ErrBin
+name: Egern「网络诊断雷达」（透明版）
+scriptings:
+- generic:
+    name: wangluozhenduanleida
+    script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/js/wangluozhenduanleida-glass.js
+widgets:
+- name: 网络诊断雷达（透明版）
+  script_name: wangluozhenduanleida
+env_schema:
+  AI:
+    name: AI
+  LMT:
+    name: LMT
+  POLICY:
+    name: POLICY
+  XY:
+    name: XY
+  YS:
+    name: YS
+  WIDGET_STYLE:
+    name: 样式（glass 透明 / classic 原版）
+    description: glass 透明（默认，根容器不设背景，卡片/磁贴半透明）；classic 原版纯色背景
+    options: ["glass", "classic"]
+    default_value: 'glass'
+author: 'lylywayr · Egern adaptation: ErrBin'
+description: 配置 1 个小组件，通过通用脚本生成界面。透明版：默认 glass，壁纸透出来。
