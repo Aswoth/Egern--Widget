@@ -2221,6 +2221,13 @@ function palette(glass) {
     dark: dark
   });
 
+  // glass 模式：强调色/柔和底色/品牌色直接用浅色纯色字符串。
+  // 实测：深色下 Egern 对 {light,dark} 自适应色解析不可靠——
+  // 用于图标颜色或 backgroundColor/backgroundGradient 时会整体变纯白
+  // （图标看不见、底色成白块），而 rgba 与文字色能正确解析。
+  // 浅色值在深色壁纸上正好是原版浅色模式的效果（图一），图标清晰可见。
+  const fix = (light, dark) => glass ? light : adaptive(light, dark);
+
   return {
     root: adaptive("#E3EAF5", "#07101F"),
 
@@ -2252,34 +2259,34 @@ function palette(glass) {
     subtext: adaptive("#4E617F", "#BBC8E0"),
     muted: adaptive("#74839A", "#8694AE"),
 
-    blue: adaptive("#2E74D2", "#70AEFF"),
-    blueSoft: adaptive("#DDEAFF", "#183B71"),
+    blue: fix("#2E74D2", "#70AEFF"),
+    blueSoft: fix("#DDEAFF", "#183B71"),
 
-    purple: adaptive("#7C63D8", "#B09AFF"),
-    purpleSoft: glass ? adaptive("rgba(124,99,216,0.20)", "rgba(176,154,255,0.20)") : adaptive("#EAE3FF", "#31275A"),
+    purple: fix("#7C63D8", "#B09AFF"),
+    purpleSoft: fix("#EAE3FF", "#31275A"),
 
-    green: adaptive("#229B62", "#58D79D"),
-    greenSoft: adaptive("#DDF7E8", "#163F34"),
+    green: fix("#229B62", "#58D79D"),
+    greenSoft: fix("#DDF7E8", "#163F34"),
 
-    amber: adaptive("#B9821D", "#FFC866"),
-    amberSoft: adaptive("#FFF0D0", "#503918"),
+    amber: fix("#B9821D", "#FFC866"),
+    amberSoft: fix("#FFF0D0", "#503918"),
 
-    red: adaptive("#D64A59", "#FF7D88"),
-    redSoft: adaptive("#FFE2E6", "#4A232C"),
+    red: fix("#D64A59", "#FF7D88"),
+    redSoft: fix("#FFE2E6", "#4A232C"),
 
-    netflix: adaptive("#E50914", "#FF505B"),
-    disney: adaptive("#2B76D8", "#7DB7FF"),
-    spotify: adaptive("#1DB954", "#1ED760"),
-    tiktok: adaptive("#111827", "#FFFFFF"),
-    youtube: adaptive("#FF0033", "#FF4B4B"),
-    prime: adaptive("#1978CC", "#7CB8FF"),
+    netflix: fix("#E50914", "#FF505B"),
+    disney: fix("#2B76D8", "#7DB7FF"),
+    spotify: fix("#1DB954", "#1ED760"),
+    tiktok: fix("#111827", "#FFFFFF"),
+    youtube: fix("#FF0033", "#FF4B4B"),
+    prime: fix("#1978CC", "#7CB8FF"),
 
-    chatgpt: adaptive("#1F2937", "#EAF0FF"),
-    claude: adaptive("#C86B35", "#FFA26E"),
-    gemini: adaptive("#6D6FE8", "#9EA9FF"),
-    deepseek: adaptive("#1D6FD8", "#61AAFF"),
-    grok: adaptive("#111827", "#F1F5FF"),
-    perplexity: adaptive("#0B88A8", "#63D9FF")
+    chatgpt: fix("#1F2937", "#EAF0FF"),
+    claude: fix("#C86B35", "#FFA26E"),
+    gemini: fix("#6D6FE8", "#9EA9FF"),
+    deepseek: fix("#1D6FD8", "#61AAFF"),
+    grok: fix("#111827", "#F1F5FF"),
+    perplexity: fix("#0B88A8", "#63D9FF")
   };
 }
 
@@ -2986,7 +2993,7 @@ function purityGaugeSVG(score, colors) {
       : Math.max(0.1, value).toFixed(1) + " 100";
 
   return [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="150" height="112" viewBox="0 0 150 112">',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="150" height="112" viewBox="0 0 150 112" color-scheme="light">',
     "<defs>",
     '<filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">',
     '<feGaussianBlur stdDeviation="2.1" result="blur"/>',
