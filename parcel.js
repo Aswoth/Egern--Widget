@@ -31,7 +31,7 @@
  *   generic（parcel-widget）→ 小组件，只渲染快照，不拉接口
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v23';
+const PARCEL_VERSION = 'v24';
 
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
@@ -801,7 +801,7 @@ function statusMark(p) {
   return { text: '在途', color: { light: '#E8894F', dark: '#FF9F0A' } };
 }
 
-function parcelRow(p, textMain, textSub) {
+function parcelRow(p, textMain, textSub, glass) {
   const st = stateOfParcel(p);
   const main = stripEdge(st === 'arrived' && p.code ? p.code : displayTitle(p));
   const mainHasCompany = !p.title && p.company && !(st === 'arrived' && p.code);
@@ -845,13 +845,17 @@ function parcelRow(p, textMain, textSub) {
       },
     ],
   };
-  if (st === 'arrived') row.backgroundColor = { light: '#FFF1E6', dark: '#33241A' };
+  // 透明版：glass 时待取行的底色改半透明 rgba，壁纸透出来；classic 保持原版实色
+  if (st === 'arrived') row.backgroundColor = glass ? { light: 'rgba(232, 89, 12, 0.10)', dark: 'rgba(255, 138, 92, 0.14)' } : { light: '#FFF1E6', dark: '#33241A' };
   return row;
 }
 
 async function renderWidget(ctx) {
   const env = ctx.env || {};
   const family = ctx.widgetFamily || 'systemLarge';
+  // 透明版：WIDGET_STYLE=glass（默认）/ classic；根容器本来就不设背景色，
+  // glass 时只把待取行的底色改半透明 rgba，品牌色图标块与左栏一处不动
+  const glass = String(env.WIDGET_STYLE || 'glass').trim().toLowerCase() !== 'classic';
   const textMain = { light: '#1C1C1E', dark: '#F2F2F7' };
   const textSub = { light: '#8A8A8E', dark: '#98989F' };
   const refreshAfter = new Date(Date.now() + 30 * 60 * 1000).toISOString();
@@ -936,9 +940,9 @@ async function renderWidget(ctx) {
     : family === 'systemExtraLarge' ? 10 : 4;
 
   const rows = [];
-  pending.slice(0, slots).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
-  transit.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
-  delivered.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub)));
+  pending.slice(0, slots).forEach((p) => rows.push(parcelRow(p, textMain, textSub, glass)));
+  transit.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub, glass)));
+  delivered.slice(0, Math.max(0, slots - rows.length)).forEach((p) => rows.push(parcelRow(p, textMain, textSub, glass)));
   const hidden = all.length - rows.length;
 
   if (family === 'systemSmall') {

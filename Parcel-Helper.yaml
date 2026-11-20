@@ -1,12 +1,18 @@
 name: 包裹助手
 
-description: 打开菜鸟 App 或小程序刷一次“我的包裹”，就自动同步包裹列表：到站显示取件码、到站/签收发通知、桌面小组件显示待取和在途。（v23）
+description: 打开菜鸟 App 或小程序刷一次“我的包裹”，就自动同步包裹列表：到站显示取件码、到站/签收发通知、桌面小组件显示待取和在途。（v24）
 
 author: pin
 
 icon: shippingbox.fill
 
 env_schema:
+  WIDGET_STYLE:
+    name: 样式
+    description: glass 透明（默认）/ classic 原版
+    default_value: 'glass'
+    options: ['glass', 'classic']
+
   NOTIFY_CAPTURE:
     name: 抓取通知
     description: 打开后，每次打开菜鸟同步包裹都通知一次，显示抓到几个包裹；关掉就只在有新包裹/到站/签收时通知
