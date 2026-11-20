@@ -31,7 +31,7 @@
  *   generic（parcel-widget）→ 小组件，只渲染快照，不拉接口
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v28';
+const PARCEL_VERSION = 'v29';
 
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
@@ -195,7 +195,7 @@ function familyOf(raw, code) {
   const up = s.trim().toUpperCase();
   if (/^(SIGN|SIGNED|DELIVERED|DELIVERY_SUCCESS|SIGN_SUCCESS|DELIVERED_SUCCESS|SIGNED_SUCCESS|SUCCESS|COMPLETE|COMPLETED|FINISHED|DONE|CANCEL|REJECT|RETURN|LOST)$/.test(up) || /^(DELIVERED|SIGNED)_/.test(up)) return 'delivered';
   if (/^(PICKUP|PICK_UP|ARRIVED|ARRIVAL|AT_STATION|IN_STATION|WAITING_PICKUP|READY_PICKUP)$/i.test(s.trim())) return 'arrived';
-  if (/^(TRANSIT|IN_TRANSIT|ON_THE_WAY|SHIPPING|TRANSPORT|INTRANSIT)$/i.test(s.trim())) return 'transit';
+  if (/^(TRANSIT|IN_TRANSIT|ON_THE_WAY|SHIPPING|TRANSPORT|INTRANSIT|ACCEPT|ACCEPTED|COLLECT|COLLECTED|PICKED_UP)$/i.test(s.trim())) return 'transit';
   if (/PICKUP/i.test(s)) return 'arrived';
   if (PICKABLE.test(s)) return 'arrived';
   if (code) return 'arrived';
@@ -250,7 +250,7 @@ function carrierName(raw, no) {
   const n = String(no || '');
   if (/^SF\d/i.test(n)) return '顺丰速运';
   if (/^(31|32|43)\d/.test(n)) return '韵达快递';
-  if (/^(75|76)\d/.test(n)) return '中通快递';
+  if (/^(75|76)\d/.test(n) || /^73\d{10,}/.test(n)) return '中通快递';
   return '';
 }
 
@@ -275,8 +275,12 @@ function trimPackage(p) {
   const rawStatus = bestStatus(cands);
   const signedFlag = p.isSign === true || p.signed === true || !!pickStr(p, 'signTime', 'signedTime', 'signDate', 'signedDate');
 
-  const statusText = { SIGN: '已签收', SIGNED: '已签收', DELIVERED: '已签收', SIGN_SUCCESS: '已签收', DELIVERED_SUCCESS: '已签收', SIGNED_SUCCESS: '已签收', PICKUP: '待取件', TRANSIT: '在途', IN_TRANSIT: '在途', CANCEL: '已取消', REJECT: '已拒收', RETURN: '已退回', LOST: '已丢失' }[String(rawStatus).toUpperCase()] || rawStatus;
   const resolved = signedFlag ? 'delivered' : familyOf(rawStatus, code);
+  // 状态码→中文：菜鸟列表的 status 是英文码（ACCEPT=已揽件 等），必须翻成中文再显示；
+  // 兜底：表里没有的码、且本身不是中文的，一律按家族给中文（在途/待取件/已签收），
+  // 原码永远不许出现在小组件上（2026-11-20：ACCEPT 直接漏出来当了副标题）
+  const statusText = { SIGN: '已签收', SIGNED: '已签收', DELIVERED: '已签收', SIGN_SUCCESS: '已签收', DELIVERED_SUCCESS: '已签收', SIGNED_SUCCESS: '已签收', PICKUP: '待取件', TRANSIT: '在途', IN_TRANSIT: '在途', TRANSPORT: '在途', SHIPPING: '在途', ON_THE_WAY: '在途', ACCEPT: '已揽件', ACCEPTED: '已揽件', COLLECT: '已揽件', COLLECTED: '已揽件', PICKED_UP: '已揽件', DELIVERING: '派送中', DELIVERY: '派送中', OUT_FOR_DELIVERY: '派送中', ARRIVED: '待取件', ARRIVAL: '待取件', AT_STATION: '待取件', IN_STATION: '待取件', WAITING_PICKUP: '待取件', READY_PICKUP: '待取件', CANCEL: '已取消', REJECT: '已拒收', RETURN: '已退回', LOST: '已丢失' }[String(rawStatus).toUpperCase()]
+    || (/[\u4e00-\u9fa5]/.test(String(rawStatus)) ? String(rawStatus) : (resolved === 'delivered' ? '已签收' : resolved === 'arrived' ? '待取件' : resolved === 'transit' ? '在途' : String(rawStatus)));
   const station = stripEdge(pickStr(st, 'pointName', 'point_name', 'stationName', 'name'));
   const no = pickStr(p, 'mailNo', 'mail_no');
   if (!no) return null;
@@ -439,18 +443,24 @@ function cleanTitle(t) {
 }
 
 function phoneTailOf(p) {
+  // 手机号尾号只认包裹自己的数据，绝不从别的包裹推断（用户有多个手机号，
+  // 多数表决会把别人的尾号安到这单上，2026-11-20 用户指出后已撤掉那版）。
+  // 找得宽一点：尾号文字、打码手机号（138****4514）在任意字段里都认，
+  // 嵌套也多看一层；找不到就返回 ''，显示时只写快递公司名、不编尾号。
   let found = '';
   (function walk(o, depth) {
-    if (found || !o || typeof o !== 'object' || depth > 2) return;
+    if (found || !o || typeof o !== 'object' || depth > 3) return;
     for (const k of Object.keys(o)) {
       const v = o[k];
       if (typeof v === 'string' && v) {
         const mTail = /尾号\D{0,3}(\d{4})/.exec(v);
         if (mTail) { found = mTail[1]; return; }
+        const mMask = /\d{3}\*+(\d{4})/.exec(v);
+        if (mMask) { found = mMask[1]; return; }
         if (/mobile|phone|tel/i.test(k)) {
           if (/^\d{4}$/.test(v.trim())) { found = v.trim(); return; }
-          const mMask = /\d{3}\*+\d{4}/.exec(v);
-          if (mMask) { found = mMask[0].slice(-4); return; }
+          const mFull = /^1[3-9]\d{9}$/.exec(v.trim());
+          if (mFull) { found = v.trim().slice(-4); return; }
         }
       }
       if (v && typeof v === 'object') walk(v, depth + 1);
@@ -465,7 +475,9 @@ function displayTitle(p) {
     return t.length > 12 ? t.slice(0, 12) + '…' : t;
   }
   if (p.no) {
-    if (p.company) return stripEdge(p.company) + ' · ' + (p.phoneTail || String(p.no).slice(-4));
+    // 没商品标题时显示“快递公司 · 手机尾号”；手机号尾号没抓到就不写尾号，
+    // 只写公司名——不编尾号，也不用运单尾号冒充（用户 2026-11-20 指出）
+    if (p.company) return p.phoneTail ? stripEdge(p.company) + ' · ' + p.phoneTail : stripEdge(p.company);
     return p.no;
   }
   return '';
