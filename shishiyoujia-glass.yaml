@@ -14,7 +14,7 @@ scriptings:
         default: "glass"
         description: "glass 透明 / classic 原版"
 widgets:
-- name: shishiyoujia-glass
+- name: 全国油价
   script_name: shishiyoujia-glass
 author: 'mickeu · Egern adaptation: ErrBin'
 description: ✨ 【主要功能】；三端尺寸完美适配：；小号 (Small)  ：四宫格间距精调版，上下卡片行距增加至 8，极致留白且完美适配不溢出。；中号 (Medium) ：1x4 横排卡片布局，标题栏精准上移
