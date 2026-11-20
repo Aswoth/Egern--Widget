@@ -14,6 +14,7 @@ compat_arguments_schema:
     name: 样式
     description: glass 透明（默认，根容器不设背景，壁纸透出来）；classic 原版纯色背景
     default_value: 'glass'
+    options: ['glass', 'classic']
 dns: {}
 # 天气/IP 定位接口直连，不走代理（否则 IP 定位到代理出口）
 rules:
