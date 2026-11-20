@@ -2222,6 +2222,9 @@ function palette(glass) {
   // 浅色值在深色壁纸上正好是原版浅色模式的效果（图一），图标清晰可见。
   // 注意：十六进制纯色字符串在深色下同样变白（用户 12:39 实测），
   // 只有 rgba() 能正确解析，所以这里把浅色 hex 转成 rgba()。
+  // 注意2：rgba() 同样没变化（用户 12:43 要求换办法）。
+  // 改走单色方案：柔和底色用与卡片一致的半透明白，图标/文字用纯白——
+  // 这两路在深色下已被证实能正常渲染（卡片灰底、白字），先保证看得见。
   const hexToRgba = (hex) => {
     const m = /^#([0-9a-fA-F]{6})$/.exec(String(hex || "").trim());
     if (!m) return hex;
@@ -2230,7 +2233,8 @@ function palette(glass) {
     const b = parseInt(m[1].slice(4, 6), 16);
     return "rgba(" + r + "," + g + "," + b + ",1)";
   };
-  const fix = (light, dark) => glass ? hexToRgba(light) : adaptive(light, dark);
+  const fix = (light, dark) => glass ? "rgba(255,255,255,0.12)" : adaptive(light, dark);
+  const fixTone = (light, dark) => glass ? "rgba(255,255,255,1)" : adaptive(light, dark);
 
   return {
     root: adaptive("#E3EAF5", "#07101F"),
@@ -2263,34 +2267,34 @@ function palette(glass) {
     subtext: adaptive("#4E617F", "#BBC8E0"),
     muted: adaptive("#74839A", "#8694AE"),
 
-    blue: fix("#2E74D2", "#70AEFF"),
+    blue: fixTone("#2E74D2", "#70AEFF"),
     blueSoft: fix("#DDEAFF", "#183B71"),
 
-    purple: fix("#7C63D8", "#B09AFF"),
+    purple: fixTone("#7C63D8", "#B09AFF"),
     purpleSoft: fix("#EAE3FF", "#31275A"),
 
-    green: fix("#229B62", "#58D79D"),
+    green: fixTone("#229B62", "#58D79D"),
     greenSoft: fix("#DDF7E8", "#163F34"),
 
-    amber: fix("#B9821D", "#FFC866"),
+    amber: fixTone("#B9821D", "#FFC866"),
     amberSoft: fix("#FFF0D0", "#503918"),
 
-    red: fix("#D64A59", "#FF7D88"),
+    red: fixTone("#D64A59", "#FF7D88"),
     redSoft: fix("#FFE2E6", "#4A232C"),
 
-    netflix: fix("#E50914", "#FF505B"),
-    disney: fix("#2B76D8", "#7DB7FF"),
-    spotify: fix("#1DB954", "#1ED760"),
-    tiktok: fix("#111827", "#FFFFFF"),
-    youtube: fix("#FF0033", "#FF4B4B"),
-    prime: fix("#1978CC", "#7CB8FF"),
+    netflix: fixTone("#E50914", "#FF505B"),
+    disney: fixTone("#2B76D8", "#7DB7FF"),
+    spotify: fixTone("#1DB954", "#1ED760"),
+    tiktok: fixTone("#111827", "#FFFFFF"),
+    youtube: fixTone("#FF0033", "#FF4B4B"),
+    prime: fixTone("#1978CC", "#7CB8FF"),
 
-    chatgpt: fix("#1F2937", "#EAF0FF"),
-    claude: fix("#C86B35", "#FFA26E"),
-    gemini: fix("#6D6FE8", "#9EA9FF"),
-    deepseek: fix("#1D6FD8", "#61AAFF"),
-    grok: fix("#111827", "#F1F5FF"),
-    perplexity: fix("#0B88A8", "#63D9FF")
+    chatgpt: fixTone("#1F2937", "#EAF0FF"),
+    claude: fixTone("#C86B35", "#FFA26E"),
+    gemini: fixTone("#6D6FE8", "#9EA9FF"),
+    deepseek: fixTone("#1D6FD8", "#61AAFF"),
+    grok: fixTone("#111827", "#F1F5FF"),
+    perplexity: fixTone("#0B88A8", "#63D9FF")
   };
 }
 
