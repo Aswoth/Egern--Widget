@@ -31,7 +31,7 @@
  *   generic（parcel-widget）→ 小组件，只渲染快照，不拉接口
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v24';
+const PARCEL_VERSION = 'v25';
 
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
@@ -774,9 +774,25 @@ function brandTileColor(company) {
   return null;
 }
 
-function logoTile(p, textMain) {
+function logoTile(p, textMain, glass) {
   const ch = (p.company ? p.company[0] : (p.no ? String(p.no)[0] : '•'));
   const brand = brandTileColor(p.company);
+  // glass 时图标块去掉色块底色，只留字母（品牌色做字色；深色下 Egern 会把 hex 渲染成白色，正好配深色壁纸）
+  if (glass) {
+    const fg = brand ? { light: brand, dark: brand } : textMain;
+    return {
+      type: 'stack',
+      direction: 'row',
+      alignItems: 'center',
+      borderRadius: 6,
+      padding: [4, 6, 4, 6],
+      width: 26,
+      height: 26,
+      children: [
+        { type: 'text', text: ch, font: { size: 13, weight: 'bold' }, textColor: fg },
+      ],
+    };
+  }
   const bg = brand ? { light: brand, dark: brand } : { light: '#E9E9EE', dark: '#48484A' };
   const fg = brand ? { light: '#FFFFFF', dark: '#FFFFFF' } : textMain;
   return {
@@ -816,7 +832,7 @@ function parcelRow(p, textMain, textSub, glass) {
     borderRadius: 10,
     padding: [3, 6, 3, 3],
     children: [
-      logoTile(p, textMain),
+      logoTile(p, textMain, glass),
       {
         type: 'stack',
         direction: 'column',
