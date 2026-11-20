@@ -2220,7 +2220,17 @@ function palette(glass) {
   // 用于图标颜色或 backgroundColor/backgroundGradient 时会整体变纯白
   // （图标看不见、底色成白块），而 rgba 与文字色能正确解析。
   // 浅色值在深色壁纸上正好是原版浅色模式的效果（图一），图标清晰可见。
-  const fix = (light, dark) => glass ? light : adaptive(light, dark);
+  // 注意：十六进制纯色字符串在深色下同样变白（用户 12:39 实测），
+  // 只有 rgba() 能正确解析，所以这里把浅色 hex 转成 rgba()。
+  const hexToRgba = (hex) => {
+    const m = /^#([0-9a-fA-F]{6})$/.exec(String(hex || "").trim());
+    if (!m) return hex;
+    const r = parseInt(m[1].slice(0, 2), 16);
+    const g = parseInt(m[1].slice(2, 4), 16);
+    const b = parseInt(m[1].slice(4, 6), 16);
+    return "rgba(" + r + "," + g + "," + b + ",1)";
+  };
+  const fix = (light, dark) => glass ? hexToRgba(light) : adaptive(light, dark);
 
   return {
     root: adaptive("#E3EAF5", "#07101F"),
