@@ -31,7 +31,7 @@
  *   generic（parcel-widget）→ 小组件，只渲染快照，不拉接口
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v26';
+const PARCEL_VERSION = 'v27';
 
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
@@ -774,37 +774,13 @@ function brandTileColor(company) {
   return null;
 }
 
-function hexToRgba(hex, alpha) {
-  const h = String(hex || '').replace('#', '');
-  if (h.length !== 6) return hex;
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
-}
-
 function logoTile(p, textMain, glass) {
   const ch = (p.company ? p.company[0] : (p.no ? String(p.no)[0] : '•'));
   const brand = brandTileColor(p.company);
-  // glass 时图标块用 rgba 品牌色做底色（深色下 Egern 会把纯 hex 渲染成白块，
-  // rgba 能正常显示品牌色）；字母白字。没品牌色的仍无底色、字母用正文色
+  // glass 单独用一组：图标块不设底色，只留字母（品牌色做字色；深色下 Egern 会把 hex
+  // 渲染成白色，正好配深色壁纸）。v26 的 rgba 底色实测仍是白块，已废弃
   if (glass) {
-    if (brand) {
-      const bg = { light: hexToRgba(brand, 0.9), dark: hexToRgba(brand, 0.9) };
-      return {
-        type: 'stack',
-        direction: 'row',
-        alignItems: 'center',
-        backgroundColor: bg,
-        borderRadius: 6,
-        padding: [4, 6, 4, 6],
-        width: 26,
-        height: 26,
-        children: [
-          { type: 'text', text: ch, font: { size: 13, weight: 'bold' }, textColor: { light: '#FFFFFF', dark: '#FFFFFF' } },
-        ],
-      };
-    }
+    const fg = brand ? { light: brand, dark: brand } : textMain;
     return {
       type: 'stack',
       direction: 'row',
@@ -814,7 +790,7 @@ function logoTile(p, textMain, glass) {
       width: 26,
       height: 26,
       children: [
-        { type: 'text', text: ch, font: { size: 13, weight: 'bold' }, textColor: textMain },
+        { type: 'text', text: ch, font: { size: 13, weight: 'bold' }, textColor: fg },
       ],
     };
   }
