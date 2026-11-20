@@ -1270,7 +1270,8 @@ export default async function (ctx) {
       ],
       merge(
         {
-          padding: [2, 5]
+          padding: [2, 5],
+          ...(glass ? {} : { backgroundColor: fill, borderRadius: 8 })
         },
         extra
       )
@@ -1290,6 +1291,7 @@ export default async function (ctx) {
         width: 37,
         height: 7.2,
         padding: [0.7, 2.5],
+        ...(glass ? {} : { backgroundColor: fill, borderRadius: 4.8 }),
         alignItems: "center"
       }
     );
@@ -1322,7 +1324,8 @@ export default async function (ctx) {
       {
         width: side,
         height: side,
-        padding: 3
+        padding: 3,
+        ...(glass ? {} : { backgroundColor: fill, borderRadius: 12 })
       }
     );
   }
@@ -1631,7 +1634,8 @@ export default async function (ctx) {
       {
         width: 36,
         height: 36,
-        padding: 2
+        padding: 2,
+        ...(glass ? {} : { backgroundColor: C.purpleSoft, borderRadius: 11 })
       }
     );
   }
@@ -2215,8 +2219,8 @@ function palette(glass) {
     dark: dark
   });
 
-  // 色块已拿掉（iconBox/pill/proxyTagLine/flagBox 不再画底色，只留图标和字），
-  // 所以强调色/品牌色直接用回原版自适应色：
+  // 色块只在 glass 下拿掉（iconBox/pill/proxyTagLine/flagBox 不画底色，只留图标和字），
+  // classic 下恢复原版底色+圆角。所以强调色/品牌色直接用回原版自适应色：
   // 浅色下渲染彩色（图一效果），深色下渲染白色——
   // 没有底色挡着，白图标/白字在深色壁纸和灰卡片上都看得见。
   // 之前单色方案（glass 下强制白字灰底）错在浅色下也白字，白底上全隐形。
@@ -2986,7 +2990,7 @@ function purityGaugeSVG(score, colors) {
       : Math.max(0.1, value).toFixed(1) + " 100";
 
   return [
-    '<svg xmlns="http://www.w3.org/2000/svg" width="150" height="112" viewBox="0 0 150 112" color-scheme="light">',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="150" height="112" viewBox="0 0 150 112">',
     "<defs>",
     '<filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">',
     '<feGaussianBlur stdDeviation="2.1" result="blur"/>',

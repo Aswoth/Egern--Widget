@@ -1179,6 +1179,19 @@ function header(title, ds, fromCache) {
   };
 }
 
+// iOS 原版标题行（13px 图标 + 13 号标题）：ios 版式 medium/large 用它，dash 版式继续用 header()
+function iosHeader(title, ds, fromCache) {
+  return {
+    type: 'stack', direction: 'row', alignItems: 'center', gap: 4,
+    children: [
+      { type: 'image', src: 'sf-symbol:antenna.radiowaves.left.and.right', width: 13, height: 13, color: C_FLOW },
+      t(title, 13, 'semibold', null, { minScale: 1 }),
+      { type: 'spacer' },
+      t(`${fromCache ? '缓存 · ' : ''}更新 ${ds && ds.updatedAt ? fmtTime(ds.updatedAt) : '--'}`, 10, 'regular', SUB, { minScale: 1 }),
+    ],
+  };
+}
+
 function feeBig(ds, ins, size) {
   const color = ins.lowFee ? WARN : TXT;
   return {
@@ -1525,7 +1538,7 @@ function iosBuildMedium(title, ds, fromCache, ctx) {
     type: 'widget', padding: [12, 14], gap: 8, ...rootBg(ctx),
     refreshAfter: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     children: [
-      header(title, ds, fromCache),
+      iosHeader(title, ds, fromCache),
       {
         type: 'stack', direction: 'row', alignItems: 'center', gap: 12, flex: 1,
         children: [
@@ -1581,7 +1594,7 @@ function iosBuildLarge(title, ds, fromCache, ctx) {
     type: 'widget', padding: [13, 15], gap: 7, ...rootBg(ctx),
     refreshAfter: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     children: [
-      header(title, ds, fromCache),
+      iosHeader(title, ds, fromCache),
       {
         type: 'stack', direction: 'row', alignItems: 'center', gap: 14, height: 80,
         children: [

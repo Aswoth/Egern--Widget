@@ -635,7 +635,7 @@ function dot(color) {
 }
 
 function glass(children, extra = {}) {
-  return { type: 'stack', direction: 'column', alignItems: 'start', gap: 6, padding: 12, borderRadius: 20, backgroundColor: C.glass, backgroundGradient: solidGradient(C.glass), children, ...extra };
+  return { type: 'stack', direction: 'column', alignItems: 'start', gap: 6, padding: 12, borderRadius: 20, backgroundColor: C.glass, ...(_glassMode ? { backgroundGradient: solidGradient(C.glass) } : {}), children, ...extra };
 }
 
 function colorOf(i) { return PALETTE[i % PALETTE.length]; }
