@@ -1876,7 +1876,10 @@ export default async function (ctx) {
     if (item.kind === "grok") {
       return row(
         [
-          image("xmark", item.color, 14, 14)
+          text("G", 13, "bold", item.color, {
+            maxLines: 1,
+            textAlign: "center"
+          })
         ],
         base
       );
