@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v22
+ * 包裹助手（Egern 版）v23
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（唯一主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -31,7 +31,7 @@
  *   generic（parcel-widget）→ 小组件，只渲染快照，不拉接口
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v22';
+const PARCEL_VERSION = 'v23';
 
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
@@ -759,19 +759,37 @@ function syncLabel(ts) {
   return sameDay ? t + ' 同步' : (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + t + ' 同步';
 }
 
+function brandTileColor(company) {
+  const c = String(company || '');
+  if (c.indexOf('顺丰') !== -1) return '#1F1F1F';
+  if (c.indexOf('韵达') !== -1) return '#6C2E91';
+  if (c.indexOf('中通') !== -1) return '#0085D0';
+  if (c.indexOf('丰巢') !== -1) return '#0E7490';
+  if (c.indexOf('申通') !== -1) return '#005BAC';
+  if (c.indexOf('圆通') !== -1) return '#E60012';
+  if (c.indexOf('京东') !== -1) return '#E1251B';
+  if (c.indexOf('菜鸟') !== -1) return '#00A0E9';
+  if (c.indexOf('极兔') !== -1) return '#FF6A00';
+  if (c.indexOf('邮政') !== -1) return '#007A33';
+  return null;
+}
+
 function logoTile(p, textMain) {
   const ch = (p.company ? p.company[0] : (p.no ? String(p.no)[0] : '•'));
+  const brand = brandTileColor(p.company);
+  const bg = brand ? { light: brand, dark: brand } : { light: '#E9E9EE', dark: '#48484A' };
+  const fg = brand ? { light: '#FFFFFF', dark: '#FFFFFF' } : textMain;
   return {
     type: 'stack',
     direction: 'row',
     alignItems: 'center',
-    backgroundColor: { light: '#E9E9EE', dark: '#48484A' },
+    backgroundColor: bg,
     borderRadius: 6,
     padding: [4, 6, 4, 6],
     width: 26,
     height: 26,
     children: [
-      { type: 'text', text: ch, font: { size: 13, weight: 'bold' }, textColor: textMain },
+      { type: 'text', text: ch, font: { size: 13, weight: 'bold' }, textColor: fg },
     ],
   };
 }
@@ -789,11 +807,14 @@ function parcelRow(p, textMain, textSub) {
   const mainHasCompany = !p.title && p.company && !(st === 'arrived' && p.code);
   const sub = stripEdge((mainHasCompany ? '' : (p.company ? stripEdge(p.company) + ' · ' : '')) + stripEdge(p.latest || '暂无轨迹'));
   const mark = statusMark(p);
-  return {
+  const mainColor = st === 'arrived' ? { light: '#E8590C', dark: '#FF8A5C' } : textMain;
+  const row = {
     type: 'stack',
     direction: 'row',
     alignItems: 'center',
     gap: 8,
+    borderRadius: 10,
+    padding: [3, 6, 3, 3],
     children: [
       logoTile(p, textMain),
       {
@@ -808,7 +829,7 @@ function parcelRow(p, textMain, textSub) {
             direction: 'row',
             alignItems: 'center',
             children: [
-              { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: textMain, textAlign: 'left', maxLines: 1, flex: 1 },
+              { type: 'text', text: main, font: { size: 13, weight: 'bold' }, textColor: mainColor, textAlign: 'left', maxLines: 1, flex: 1 },
               { type: 'text', text: mark.text, font: { size: 11, weight: 'bold' }, textColor: mark.color },
             ],
           },
@@ -824,6 +845,8 @@ function parcelRow(p, textMain, textSub) {
       },
     ],
   };
+  if (st === 'arrived') row.backgroundColor = { light: '#FFF1E6', dark: '#33241A' };
+  return row;
 }
 
 async function renderWidget(ctx) {
@@ -951,7 +974,7 @@ async function renderWidget(ctx) {
 
   const railChildren = [
     { type: 'text', text: '待取件', font: { size: 12, weight: 'medium' }, textColor: textMain },
-    { type: 'text', text: String(pending.length), font: { size: 30, weight: 'bold' }, textColor: textMain },
+    { type: 'text', text: String(pending.length), font: { size: 30, weight: 'bold' }, textColor: { light: '#E8590C', dark: '#FF8A5C' } },
     { type: 'text', text: '在途 ' + transit.length, font: { size: 12, weight: 'medium' }, textColor: { light: '#007AFF', dark: '#0A84FF' } },
   ];
   if (delivered.length) railChildren.push({ type: 'text', text: '已取 ' + delivered.length, font: { size: 12 }, textColor: textSub });
