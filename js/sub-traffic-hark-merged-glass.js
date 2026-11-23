@@ -905,9 +905,13 @@ function v2MultiLarge(ctx, list) {
       T(`今日已用 ${fmtBytes(sumToday)}`, 11, C.accent, 'semibold'),
     ],
   }];
+  // 纵向撑满：去掉末尾 spacer，改在各段之间插弹性 spacer，多余高度均匀分到间距里（与雷达同款做法）
+  const sections = [header(list, titleOf(ctx, list)), ...top, ...rows];
+  const children = [];
+  sections.forEach((s, i) => { if (i) children.push({ type: 'spacer' }); children.push(s); });
   return {
     type: 'widget', padding: [12, 14], gap: 8, ...rootBg(), refreshAfter: refreshAt(ctx),
-    children: [header(list, titleOf(ctx, list)), ...top, ...rows, { type: 'spacer' }],
+    children,
   };
 }
 
