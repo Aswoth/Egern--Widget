@@ -1,5 +1,6 @@
 name: 订阅流量监控（Hark 融合版·透明版）
 description: 订阅流量监控：仪表盘与环形两种版式合二为一（LAYOUT 切换），最多 4 个订阅，大号含近 7 天用量图。
+icon: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/icon/hark-merged-icon.png
 env_schema:
   SUB1_URL:
     name: 订阅1 链接

@@ -1,5 +1,6 @@
 name: "中国移动（Hark 融合版·透明版）"
 description: "桌面/锁屏小组件：剩余话费、流量/其他流量/语音半圆仪表、近 7 天流量柱状图、今日已用、日均可用与用完预测；仪表盘与 iOS 两种版式可选。先在「中国移动」App 用短信验证码登录一次自动捕获参数。"
+icon: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/icon/china-mobile-merged-icon.png
 author: "Hark（基于 zhaohantao1360-hash v20 改版，iOS 液态玻璃风格 + 用量洞察）"
 
 # Egern 模块设置页自动生成的开关/输入框（模块级 env，优先级最高）

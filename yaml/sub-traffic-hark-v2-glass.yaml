@@ -1,5 +1,6 @@
 name: 订阅流量监控（Hark 仪表盘版·透明版）
 description: 订阅流量监控：最多 4 个机场/代理订阅的剩余流量、7 天用量柱状图、用完预测、今日已用与到期时间。
+icon: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/icon/hark-v2-icon.png
 env_schema:
   SUB1_URL:
     name: 订阅1 链接

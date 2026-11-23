@@ -27,3 +27,4 @@ env_schema:
     default_value: 'glass'
 author: 'lylywayr · Egern adaptation: ErrBin'
 description: 实时诊断网络状态：当前代理出口、延迟与协议，本地网络与 DNS，流媒体解锁与 AI 解锁检测，IP 纯净评分与风险等级。
+icon: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/icon/radar-icon.png
