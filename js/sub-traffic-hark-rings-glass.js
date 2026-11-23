@@ -1045,28 +1045,28 @@ function multiLarge(ctx, list) {
   const rowH = n >= 4 ? 48 : (n === 3 ? 52 : 56);
   const chartH = n >= 4 ? 0 : (n === 3 ? 0 : 100);
   const rows = shown.map((s, i) => glass([subRow(s, i, 290, { detail: true, valueSize: n >= 4 ? 13 : 15, barH: n >= 4 ? 4 : 5 })], { padding: [9, 12], borderRadius: 16, height: rowH, gap: 0 }));
-  return {
-    type: 'widget', padding: [12, 14], gap: 7, ...rootBg(), refreshAfter: refreshAt(ctx),
+  // 纵向撑满：去掉末尾 spacer，改在各段之间插弹性 spacer，多余高度均匀分到间距里（与雷达同款做法）
+  const topRow = {
+    type: 'stack', direction: 'row', alignItems: 'center', gap: 14, height: n >= 4 ? 72 : 80,
     children: [
-      header(list, titleOf(ctx, list)),
+      { type: 'image', src: ringsSvg(shown.map((s, i) => ({ pct: s.traffic ? (pctLeft(s.traffic) ?? 1) : 0, color: colorOf(i) })), 140, n >= 4 ? 10 : 13, 3), width: n >= 4 ? 70 : 78, height: n >= 4 ? 70 : 78 },
       {
-        type: 'stack', direction: 'row', alignItems: 'center', gap: 14, height: n >= 4 ? 72 : 80,
+        type: 'stack', direction: 'column', alignItems: 'start', gap: 2,
         children: [
-          { type: 'image', src: ringsSvg(shown.map((s, i) => ({ pct: s.traffic ? (pctLeft(s.traffic) ?? 1) : 0, color: colorOf(i) })), 140, n >= 4 ? 10 : 13, 3), width: n >= 4 ? 70 : 78, height: n >= 4 ? 70 : 78 },
-          {
-            type: 'stack', direction: 'column', alignItems: 'start', gap: 2,
-            children: [
-              T(`${n} 个订阅 · 合计剩余`, 11, C.dim, 'medium'),
-              bigRemain({ remaining: sumRemain }, 30),
-              T(`今日已用 ${fmtBytes(sumToday)}${nodes ? ` · ${nodes} 节点` : ''}`, 11, C.accent, 'semibold'),
-            ],
-          },
-          { type: 'spacer' },
+          T(`${n} 个订阅 · 合计剩余`, 11, C.dim, 'medium'),
+          bigRemain({ remaining: sumRemain }, 30),
+          T(`今日已用 ${fmtBytes(sumToday)}${nodes ? ` · ${nodes} 节点` : ''}`, 11, C.accent, 'semibold'),
         ],
       },
-      ...rows,
-      ...(chartH ? [weekCard(shown, chartH)] : [{ type: 'spacer' }]),
+      { type: 'spacer' },
     ],
+  };
+  const sections = [header(list, titleOf(ctx, list)), topRow, ...rows, ...(chartH ? [weekCard(shown, chartH)] : [])];
+  const children = [];
+  sections.forEach((s, i) => { if (i) children.push({ type: 'spacer' }); children.push(s); });
+  return {
+    type: 'widget', padding: [12, 14], gap: 7, ...rootBg(), refreshAfter: refreshAt(ctx),
+    children,
   };
 }
 

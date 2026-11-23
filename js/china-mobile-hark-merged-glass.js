@@ -1354,10 +1354,12 @@ function buildLarge(title, ds, fromCache, ctx) {
   const masked = /^\d{11}$/.test(phone) ? `${phone.slice(0, 3)} **** ${phone.slice(7)}` : '';
   const labels = [];
   for (let i = 6; i >= 0; i--) { const d = new Date(Date.now() - i * 86400000); labels.push(i === 0 ? '今' : `${d.getDate()}`); }
+  // 纵向撑满：去掉末尾 spacer，改在各段之间插弹性 spacer，多余高度均匀分到间距里（与雷达同款做法）
   return {
     type: 'widget', padding: 14, gap: 9, ...rootBg(ctx), refreshAfter: refresh30(),
     children: [
       header(title, ds, fromCache),
+      { type: 'spacer' },
       {
         type: 'stack', direction: 'row', alignItems: 'center', gap: 8,
         children: [
@@ -1370,6 +1372,7 @@ function buildLarge(title, ds, fromCache, ctx) {
           ], { flex: 1, height: 74, gap: 2, padding: [9, 12], borderRadius: 16 }),
         ],
       },
+      { type: 'spacer' },
       {
         type: 'stack', direction: 'row', alignItems: 'center', gap: 8,
         children: [
@@ -1378,6 +1381,7 @@ function buildLarge(title, ds, fromCache, ctx) {
           gaugeCard('phone.fill', C_VOICE, ds.voice, '剩余语音', { gw: 62, numSize: 18 }),
         ],
       },
+      { type: 'spacer' },
       glass([
         {
           type: 'stack', direction: 'row', alignItems: 'center', gap: 4,
@@ -1394,7 +1398,6 @@ function buildLarge(title, ds, fromCache, ctx) {
           children: labels.map(l => ({ type: 'stack', direction: 'row', flex: 1, children: [{ type: 'spacer' }, t(l, 8, 'medium', SUB, { minScale: 1 }), { type: 'spacer' }] })),
         },
       ], { gap: 5, padding: [9, 12], borderRadius: 16 }),
-      { type: 'spacer' },
       ...(ds.planDebug ? [t(ds.planDebug, 'caption2', 'regular', SUB, { maxLines: 3 })] : []),
     ],
   };
@@ -1590,11 +1593,13 @@ function iosBuildLarge(title, ds, fromCache, ctx) {
     },
     { type: 'image', src: barSvg(d.percent, color, 300, 6), width: 296, height: 6 },
   ], { gap: 6, padding: [8, 12], borderRadius: 16, height: 48 });
+  // 纵向撑满：去掉末尾 spacer，改在各段之间插弹性 spacer，多余高度均匀分到间距里（与雷达同款做法）
   return {
     type: 'widget', padding: [13, 15], gap: 7, ...rootBg(ctx),
     refreshAfter: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     children: [
       iosHeader(title, ds, fromCache),
+      { type: 'spacer' },
       {
         type: 'stack', direction: 'row', alignItems: 'center', gap: 14, height: 80,
         children: [
@@ -1610,9 +1615,11 @@ function iosBuildLarge(title, ds, fromCache, ctx) {
           { type: 'spacer' },
         ],
       },
+      { type: 'spacer' },
       meter('wifi', C_FLOW, ds.flow),
       meter('globe.asia.australia.fill', C_OTHER, other),
       meter('phone.fill', C_VOICE, ds.voice),
+      { type: 'spacer' },
       glass([
         {
           type: 'stack', direction: 'row', alignItems: 'center', gap: 8,
@@ -1624,7 +1631,6 @@ function iosBuildLarge(title, ds, fromCache, ctx) {
           ],
         },
       ], { padding: [9, 12], borderRadius: 16, gap: 0, height: 36 }),
-      { type: 'spacer' },
       ...(ds.planDebug ? [t(ds.planDebug, 'caption2', 'regular', SUB, { maxLines: 3 })] : []),
     ],
   };

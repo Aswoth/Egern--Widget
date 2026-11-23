@@ -4585,7 +4585,7 @@ function addHours(parent, data) {
 function buildSmall(w, data) {
   w.setPadding(10, 13, 10, 13)
   addHeader(w, data)
-  w.addSpacer(4)
+  w.addSpacer()
   const hero = w.addStack()
   hero.layoutHorizontally()
   hero.centerAlignContent()
@@ -4598,15 +4598,15 @@ function buildSmall(w, data) {
   })
   hero.addSpacer()
   addWeatherIcon(hero, data.now.icon, 32, isNight(data))
-  w.addSpacer(2)
+  w.addSpacer()
   addText(w, clean(data.now.text) || '实况暂缺', {
     size: 11,
     weight: 'medium',
     color: COLORS.ink(),
   })
-  w.addSpacer(4)
+  w.addSpacer()
   addHighLow(w, data, 10)
-  w.addSpacer(4)
+  w.addSpacer()
   addHumidity(w, data, 42)
 }
 
@@ -4614,11 +4614,11 @@ function buildMedium(w, data) {
   const warning = clean(data.warnings && data.warnings[0] && data.warnings[0].title)
   w.setPadding(8, 15, 8, 15)
   addHeader(w, data)
-  w.addSpacer(2)
+  w.addSpacer()
   addHero(w, data, { compact: true })
-  w.addSpacer(3)
+  w.addSpacer()
   addMediumDetails(w, data)
-  w.addSpacer(warning ? 3 : 5)
+  w.addSpacer()
   addForecast(w, data, true)
 }
 
@@ -4629,12 +4629,12 @@ function buildLarge(w, data) {
     .join(' ')
   w.setPadding(12, 16, 12, 16)
   addHeader(w, data)
-  w.addSpacer(4)
+  w.addSpacer()
   addHero(w, data, { large: true })
-  w.addSpacer(4)
+  w.addSpacer()
   addHumidity(w, data, 100)
-  w.addSpacer(8)
-  if (addHours(w, data)) w.addSpacer(8)
+  w.addSpacer()
+  if (addHours(w, data)) w.addSpacer()
 
   const metrics = w.addStack()
   metrics.layoutHorizontally()
@@ -4644,11 +4644,11 @@ function buildLarge(w, data) {
   metrics.addSpacer()
   addMetric(metrics, 'eye', '能见度', unit(data.now.vis, ' km'))
 
-  w.addSpacer(8)
+  w.addSpacer()
   addForecast(w, data, false)
 
   if (warning) {
-    w.addSpacer(6)
+    w.addSpacer()
     const warnBox = w.addStack()
     warnBox.layoutHorizontally()
     warnBox.centerAlignContent()

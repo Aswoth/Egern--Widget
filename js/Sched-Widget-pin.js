@@ -299,6 +299,7 @@ async function handleWidget(ctx) {
     const rowB = todayRow + 1 < weekRows ? todayRow + 1 : todayRow - 1;
     const firstRow = Math.min(rowA, rowB);
     const secondRow = Math.max(rowA, rowB);
+    // 纵向撑满：去掉末尾 spacer，在星期头之后和两行之间各插 1 个弹性 spacer，多余高度均匀分到间距里（与雷达同款做法）
     return {
       type: 'widget',
       padding: [10, 14, 8, 14],
@@ -310,9 +311,10 @@ async function handleWidget(ctx) {
             { type: 'spacer', length: 6 },
             weekdayHeader(10),
             { type: 'spacer', length: 4 },
-            weekRow(firstRow, 13),
-            weekRow(secondRow, 13),
             { type: 'spacer' },
+            weekRow(firstRow, 13),
+            { type: 'spacer' },
+            weekRow(secondRow, 13),
           ],
         },
       ],
