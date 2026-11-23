@@ -18,4 +18,4 @@ widgets:
   script_name: shishiyoujia-glass
 author: 'mickeu · Egern adaptation: ErrBin'
 description: 实时油价：按省份显示 92#/95#/98# 与 0# 柴油价格、较上次调整的涨跌幅；大号含历史走势图，调价前 3 天显示下轮调价预测。
-icon: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/icon/gas-icon.png
+icon: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/icon/Gas-Icon.png
