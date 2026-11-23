@@ -26,4 +26,4 @@ env_schema:
     options: ["glass", "classic"]
     default_value: 'glass'
 author: 'lylywayr · Egern adaptation: ErrBin'
-description: 配置 1 个小组件，通过通用脚本生成界面。透明版：默认 glass，壁纸透出来。
+description: 实时诊断网络状态：当前代理出口、延迟与协议，本地网络与 DNS，流媒体解锁与 AI 解锁检测，IP 纯净评分与风险等级。

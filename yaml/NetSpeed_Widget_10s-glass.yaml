@@ -2,7 +2,7 @@
 # Author: BiaoerD
 # Glass fork: 透明版（WIDGET_STYLE 开关，glass 默认透明 / classic 原版）
 name: NetSpeed 10s 测速 · 透明版
-description: 持续测速 10 秒：每秒记录一次速度，结束后显示平均值与逐秒数据；节点显示整合 IPPure（国家城市 / 运营商 / 住宅原生 / IP 风险评分）。透明版：WIDGET_STYLE 开关，glass 默认透明 / classic 原版。
+description: 持续测速 10 秒：每秒记录一次速度，结束后显示平均值与逐秒数据；节点信息整合 IPPure（国家城市、运营商、住宅原生、IP 风险评分）。
 author: BiaoerD
 
 env_schema:

@@ -1,5 +1,5 @@
 name: 天气·晴雨（透明版）
-description: 蓝灰 UI 风格 · 含农历节气/逐时预报/五日预报/湿度进度条 · 数据源中国天气网（免 Key）· 默认透明 glass（壁纸透出来），可切回原版纯色 classic
+description: 实时天气：逐时预报、五日预报、农历节气与湿度进度条；数据源中国天气网（免 Key）。
 author: 小龙女她爸
 icon: https://raw.githubusercontent.com/SIJULY/egern-radar/main/weather-icon.png
 compat_arguments:
