@@ -2155,9 +2155,14 @@ export default async function (ctx) {
     );
   }
 
+  // 纵向撑满：dashboard 不再写死 342 高度，改由 flex: 1 撑满容器，
+  // 三个弹性 spacer 把多余高度均匀分到各区之间，底部不再留一整条空白。
+  // 内容块（header / 两行卡片 / footer）的尺寸、顺序、字号一概不动。
   const dashboard = col(
     [
       header(),
+
+      spacer(),
 
       row(
         [
@@ -2171,6 +2176,8 @@ export default async function (ctx) {
         }
       ),
 
+      spacer(),
+
       row(
         [
           serviceCard("流媒体解锁", "play.rectangle.fill", media, C.blue),
@@ -2183,10 +2190,12 @@ export default async function (ctx) {
         }
       ),
 
+      spacer(),
+
       footer()
     ],
     {
-      height: 342,
+      flex: 1,
       padding: [8, 8],
       gap: 6
     }
@@ -2201,8 +2210,7 @@ export default async function (ctx) {
       Date.now() + REFRESH_MINUTES * 60 * 1000
     ).toISOString(),
     children: [
-      dashboard,
-      spacer()
+      dashboard
     ]
   };
 }
