@@ -7,36 +7,36 @@ scriptings:
 - generic:
     name: shishiyoujia-glass
     script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/js/shishiyoujia-glass.js
-    env_schema:
-      DATA_SOURCE:
-        name: "数据源"
-        description: "sinopec 中石化官方（默认，含涨跌幅和走势图）/ qiyoujiage 汽油价格网 qiyoujiage.com（仅价格）/ youjia 今日油价聚合网 youjia.abapi.cn（仅价格）；下轮调价日与预测始终取汽油价格网"
-        default_value: "sinopec"
-        options: ["sinopec", "qiyoujiage", "youjia"]
-      WIDGET_STYLE:
-        name: "小组件样式"
-        description: "glass 透明（默认）/ classic 原版"
-        default_value: "glass"
-        options: ["glass", "classic"]
-      PROVINCE:
-        name: "省份"
-        description: "填省份名称（如 湖南、湖北）或编码（如 43、42），默认湖南"
-        default_value: "湖南"
-      CITY:
-        name: "城市"
-        description: "城市或地区名称，默认长沙"
-        default_value: "长沙"
-      AREA_INDEX:
-        name: "区域索引（选填）"
-        description: "多区域特殊索引（数字），留空自动匹配"
-        default_value: ""
-      OFFSET_SCALE:
-        name: "涨跌幅系数（选填）"
-        description: "涨跌幅系数缩放，默认 1"
-        default_value: "1"
 widgets:
 - name: 全国油价
   script_name: shishiyoujia-glass
+env_schema:
+  DATA_SOURCE:
+    name: "数据源"
+    description: "sinopec 中石化官方（默认，含涨跌幅和走势图）/ qiyoujiage 汽油价格网 qiyoujiage.com（仅价格）/ youjia 今日油价聚合网 youjia.abapi.cn（仅价格）；下轮调价日与预测始终取汽油价格网"
+    default_value: "sinopec"
+    options: ["sinopec", "qiyoujiage", "youjia"]
+  WIDGET_STYLE:
+    name: "小组件样式"
+    description: "glass 透明（默认）/ classic 原版"
+    default_value: "glass"
+    options: ["glass", "classic"]
+  PROVINCE:
+    name: "省份"
+    description: "填省份名称（如 湖南、湖北）或编码（如 43、42），默认湖南"
+    default_value: "湖南"
+  CITY:
+    name: "城市"
+    description: "城市或地区名称，默认长沙"
+    default_value: "长沙"
+  AREA_INDEX:
+    name: "区域索引（选填）"
+    description: "多区域特殊索引（数字），留空自动匹配"
+    default_value: ""
+  OFFSET_SCALE:
+    name: "涨跌幅系数（选填）"
+    description: "涨跌幅系数缩放，默认 1"
+    default_value: "1"
 author: 'mickeu · Egern adaptation: ErrBin'
 description: 实时油价：按省份显示 92#/95#/98# 与 0# 柴油价格、较上次调整的涨跌幅；大号含历史走势图，调价前 3 天显示下轮调价预测。
 icon: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/icon/Gas-Icon.png
