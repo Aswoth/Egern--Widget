@@ -9,10 +9,26 @@ scriptings:
     script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/js/shishiyoujia-glass.js
     env_schema:
       WIDGET_STYLE:
-        type: string
+        name: "小组件样式"
+        description: "glass 透明（默认）/ classic 原版"
+        default_value: "glass"
         options: ["glass", "classic"]
-        default: "glass"
-        description: "glass 透明 / classic 原版"
+      PROVINCE:
+        name: "省份"
+        description: "填省份名称（如 湖南、湖北）或编码（如 43、42），默认湖南"
+        default_value: "湖南"
+      CITY:
+        name: "城市"
+        description: "城市或地区名称，默认长沙"
+        default_value: "长沙"
+      AREA_INDEX:
+        name: "区域索引（选填）"
+        description: "多区域特殊索引（数字），留空自动匹配"
+        default_value: ""
+      OFFSET_SCALE:
+        name: "涨跌幅系数（选填）"
+        description: "涨跌幅系数缩放，默认 1"
+        default_value: "1"
 widgets:
 - name: 全国油价
   script_name: shishiyoujia-glass
