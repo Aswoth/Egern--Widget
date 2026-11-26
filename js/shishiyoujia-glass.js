@@ -15,7 +15,7 @@
  * • 临近提醒文案切换：调价前三天，左下角标签自动由"较上次调整"切换为"下轮预测"，
  *   预测涨跌幅从汽油价格网(qiyoujiage.com)按当前省份实时抓取，抓取失败时自动回退为历史涨跌幅显示。
  * * 🔧 【环境变量】
- * DATA_SOURCE  — 数据源 (默认: sinopec 中石化官方；可选 qiyoujiage 汽油价格网、youjia 今日油价聚合网)
+ * DATA_SOURCE  — 数据源 (默认: 中石化官方；可选 汽油价格网、今日油价聚合网；英文代码 sinopec/qiyoujiage/youjia 也认)
  * PROVINCE     — 省份名称/编码 (默认: 湖南)
  * CITY         — 城市或地区名称 (默认: 长沙)
  * AREA_INDEX   — 多区域特殊索引 (数字，可选)
@@ -297,9 +297,14 @@ export default async function (ctx) {
     return raw === '' ? null : toNumber(raw, null);
   })();
   const offsetScale = toNumber(getEnv(env, ['OFFSET_SCALE', 'offset_scale'], '1'), 1);
-  // 数据源：sinopec 中石化官方（默认，含涨跌幅与走势图）/
-  // qiyoujiage 汽油价格网（仅价格）/ youjia 今日油价聚合网（仅价格）
-  const dataSource = String(getEnv(env, ['DATA_SOURCE', 'data_source'], 'sinopec') || 'sinopec').trim().toLowerCase();
+  // 数据源：选项值是中文名（设置里直接显示中文），同时兼容英文代码
+  const DATA_SOURCE_ALIASES = {
+    '中石化官方': 'sinopec', '中石化': 'sinopec',
+    '汽油价格网': 'qiyoujiage', '油价网': 'qiyoujiage',
+    '今日油价聚合网': 'youjia', '今日油价': 'youjia'
+  };
+  const dataSourceRaw = String(getEnv(env, ['DATA_SOURCE', 'data_source'], 'sinopec') || 'sinopec').trim().toLowerCase();
+  const dataSource = DATA_SOURCE_ALIASES[dataSourceRaw] || dataSourceRaw;
 
   const family  = (ctx.widgetFamily || 'systemMedium').toLowerCase();
   const isSmall = family.includes('small');

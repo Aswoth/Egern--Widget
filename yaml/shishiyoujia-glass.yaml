@@ -13,9 +13,9 @@ widgets:
 env_schema:
   DATA_SOURCE:
     name: "数据源"
-    description: "sinopec 中石化官方（默认，含涨跌幅和走势图）/ qiyoujiage 汽油价格网 qiyoujiage.com（仅价格）/ youjia 今日油价聚合网 youjia.abapi.cn（仅价格）；下轮调价日与预测始终取汽油价格网"
-    default_value: "sinopec"
-    options: ["sinopec", "qiyoujiage", "youjia"]
+    description: "中石化官方含涨跌幅和走势图（默认）/ 汽油价格网仅价格 / 今日油价聚合网仅价格；下轮调价日与预测始终取汽油价格网"
+    default_value: "中石化官方"
+    options: ["中石化官方", "汽油价格网", "今日油价聚合网"]
   WIDGET_STYLE:
     name: "小组件样式"
     description: "glass 透明（默认）/ classic 原版"
