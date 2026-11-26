@@ -1,5 +1,5 @@
 /**
- * 包裹助手（Egern 版）v23
+ * 包裹助手（Egern 版）v30
  *
  * 数据来源（按优先级）：
  *   1) 体捕获（唯一主通道，探针 v10 已验证）：打开菜鸟 App 或小程序刷一次
@@ -12,9 +12,11 @@
  *      Egern 没有 WebView；原版作者也说“暂时做不到无后台刷新”）。定时
  *      不再调 MTOP、不再报“后台刷新失败”，小组件也不再拉 MTOP；凭证抓取
  *      也一并停了（没人用了，不再存淘宝 cookie）。取件码只靠打开菜鸟抓取。
- *   3) 快递鸟 8001（可选补充）：填了密钥和运单号才能用，给没有菜鸟
- *      列表的单号查详细轨迹；运单号变了会强制查一次，和菜鸟快照合并，
- *      不会丢掉菜鸟的包裹。
+ *   3) 快递鸟 8001（可选补充，v30 后台轮询）：填了密钥后，小组件每次刷新
+ *      时会在后台查快照里未签收包裹的最新状态（45 分钟最多查一次，只查
+ *      未签收的），状态更新进快照、取件码保留抓取到的那份；没填密钥的单号
+ *      也能手动加进 TRACKINGS 查详细轨迹，和菜鸟快照合并，不会丢掉菜鸟的包裹。
+ *      快递鸟只能查状态，取件码一般给不了。
  *   4) v19 抓取收紧：别人手机上抓到了假包裹（通知标题是 bindHighAuth、
  *      待领取）——抓取原来所有淘宝 H5 / 菜鸟响应都解析，别的接口（账号
  *      绑定类）的返回里也有列表结构，被当成包裹。现只认包裹列表接口
@@ -31,7 +33,7 @@
  *   generic（parcel-widget）→ 小组件，只渲染快照，不拉接口
  *   generic（parcel-status）→ 手动查一次现状
  */
-const PARCEL_VERSION = 'v29';
+const PARCEL_VERSION = 'v30';
 
 const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
 
@@ -43,6 +45,10 @@ const SNAP_KEY = 'parcel.snapshot.v1';
 const SHIPPER_KEY = 'parcel.shippers.v1';
 const NOTED_KEY = 'parcel.noted.v1';
 const TRACKINGS_KEY = 'parcel.trackings.v1';
+const KDPOLL_KEY = 'parcel.kdniao_poll.v1';
+// 后台快递鸟轮询节流：两次查询至少间隔 45 分钟（小组件约 30 分钟刷新一次，
+// 轮询只发生在其中一部分刷新里），避免把免费额度烧光。
+const KDNIAO_POLL_MIN_MS = 45 * 60 * 1000;
 
 const DELIVERED_RE = /已签收|签收成功|已妥投|妥投|已代收|代收成功|已自提|自提成功|取件成功|已取件|已完成|派送完成|配送完成|已送达|已领取|已投递/;
 const PICKABLE = /待取件|已到站|已暂存|已存放|已放入|送达代收点|请及时取|请及时领取|凭取件码|待领取|已妥收|快递柜|驿站|代收点|待自提|待取货|已入柜|请凭码取件/;
@@ -712,12 +718,25 @@ async function queryKdniao(ctx, env, no, shipperCode, company, phone) {
   return { shipperCode, company: company || shipperCode, state, status, latest, nodes };
 }
 
-async function refreshKdniao(ctx, env, prevByNo) {
-  const trackings = parseTrackings(env.TRACKINGS);
+// 快照里未签收包裹的待查清单（后台轮询用）：只查在途/待取/未知状态，
+// 已签收的不再查；快递公司优先用之前查到缓存的，没有就现识别。
+function snapshotPollEntries(ctx, snap) {
+  const shipperCache = loadJSON(ctx, SHIPPER_KEY) || {};
+  const out = [];
+  ((snap && snap.parcels) || []).forEach((p) => {
+    if (!p || !p.no) return;
+    if (stateOfParcel(p) === 'delivered') return;
+    const cached = shipperCache[p.no] || {};
+    out.push({ no: p.no, shipper: cached.shipperCode || '', title: p.title || p.company || '' });
+  });
+  return out;
+}
+
+async function refreshKdniaoEntries(ctx, env, entries, prevByNo) {
   const phone = String(env.PHONE_LAST4 || '').trim();
   const shipperCache = loadJSON(ctx, SHIPPER_KEY) || {};
   const parcels = [];
-  for (const t of trackings) {
+  for (const t of entries) {
     let shipper = t.shipper;
     let company = '';
     try {
@@ -760,6 +779,10 @@ async function refreshKdniao(ctx, env, prevByNo) {
   }
   saveJSON(ctx, SHIPPER_KEY, shipperCache);
   return { updatedAt: Date.now(), parcels };
+}
+
+async function refreshKdniao(ctx, env, prevByNo) {
+  return refreshKdniaoEntries(ctx, env, parseTrackings(env.TRACKINGS), prevByNo);
 }
 
 function syncLabel(ts) {
@@ -919,20 +942,41 @@ async function renderWidget(ctx) {
 
   let snap = loadJSON(ctx, SNAP_KEY);
 
-  if (env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY && env.TRACKINGS && trackingsChanged(ctx)) {
+  // v30：后台快递鸟轮询——小组件每次刷新时，若配了快递鸟 key、快照里还有
+  // 未签收包裹、且距离上次查询超过 45 分钟，就用快递鸟查一遍这些单号的
+  // 最新状态，合并进快照（取件码仍保留抓取到的那份）。菜鸟 MTOP 后台
+  // 刷新已证实走不通（v18），所以状态靠快递鸟、取件码仍靠开菜鸟抓取。
+  const kdReady = !!(env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY);
+  const trackingsDirty = !!(env.TRACKINGS && trackingsChanged(ctx));
+  const lastPoll = loadJSON(ctx, KDPOLL_KEY);
+  const lastPollAt = (lastPoll && lastPoll.at) || 0;
+  const hasActive = snap && Array.isArray(snap.parcels) &&
+    snap.parcels.some((p) => stateOfParcel(p) !== 'delivered');
+  const pollDue = kdReady && hasActive && (Date.now() - lastPollAt > KDNIAO_POLL_MIN_MS);
+  if (kdReady && (trackingsDirty || pollDue)) {
     try {
       const prevSnap0 = snap;
       const prevByNo = {};
       ((snap && snap.parcels) || []).forEach((p) => { prevByNo[p.no] = p; });
-      const fresh = await refreshKdniao(ctx, env, prevByNo);
-      const merged = mergeKdniaoInto(snap, fresh.parcels);
-      saveJSON(ctx, SNAP_KEY, merged);
-      snap = merged;
-      if (prevSnap0) notifyTransitions(ctx, prevSnap0, merged);
+      // 待查清单 = 快照里未签收的单号 + TRACKINGS 里手动加的单号，去重
+      const entries = snapshotPollEntries(ctx, snap);
+      const seen = {};
+      entries.forEach((e) => { seen[e.no] = true; });
+      parseTrackings(env.TRACKINGS).forEach((t) => {
+        if (!seen[t.no]) { entries.push(t); seen[t.no] = true; }
+      });
+      if (entries.length) {
+        const fresh = await refreshKdniaoEntries(ctx, env, entries, prevByNo);
+        const merged = mergeKdniaoInto(snap, fresh.parcels);
+        saveJSON(ctx, SNAP_KEY, merged);
+        saveJSON(ctx, KDPOLL_KEY, { at: Date.now() });
+        snap = merged;
+        if (prevSnap0) notifyTransitions(ctx, prevSnap0, merged);
+      } else {
+        saveJSON(ctx, KDPOLL_KEY, { at: Date.now() });
+      }
     } catch (e) {  }
   }
-  // v18：小组件只渲染快照，不再拉 MTOP（后台刷新已证实走不通）；
-  // 快照过期也不主动刷，等下次打开菜鸟抓取时更新。
   if (!snap || !Array.isArray(snap.parcels) || !snap.parcels.length) {
     return hint('打开菜鸟 App 或小程序，刷一次“我的包裹”，快照就会出现在这里。');
   }
@@ -1045,7 +1089,12 @@ async function renderWidget(ctx) {
 
 async function onStatus(ctx) {
   const lines = ['包裹助手 ' + PARCEL_VERSION];
-  lines.push('后台刷新：已关（MTOP 走不通；打开菜鸟刷“我的包裹”同步取件码）');
+  const env = (ctx && ctx.env) || {};
+  if (env.KDNIAO_EBUSINESS_ID && env.KDNIAO_APP_KEY) {
+    lines.push('后台刷新：快递鸟（未签收包裹的状态后台自动查；取件码仍需打开菜鸟同步）');
+  } else {
+    lines.push('后台刷新：已关（MTOP 走不通；打开菜鸟刷“我的包裹”同步取件码）');
+  }
   const snap = loadJSON(ctx, SNAP_KEY);
   if (snap && snap.count > 0) {
     lines.push('包裹快照：' + snap.count + ' 个，其中 ' + (snap.withCode || 0) + ' 个有取件码（' + syncLabel(snap.updatedAt) + '）');
