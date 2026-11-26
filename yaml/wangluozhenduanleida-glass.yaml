@@ -11,15 +11,20 @@ widgets:
   script_name: wangluozhenduanleida
 env_schema:
   AI:
-    name: AI
+    name: AI 策略
+    description: AI 服务解锁检测用的策略组；POLICY 为空时生效，留空自动匹配
   LMT:
-    name: LMT
+    name: 流媒体策略
+    description: 流媒体解锁检测用的策略组；POLICY 为空时生效，留空自动匹配
   POLICY:
-    name: POLICY
+    name: 代理策略
+    description: 最高优先级；指定后出口、延迟、UDP/QUIC、流媒体、AI 全部统一走该策略；留空用默认规则
   XY:
-    name: XY
+    name: 强制协议
+    description: 手动指定协议，如 VLESS / Trojan / HY2 / AnyTLS；留空自动识别
   YS:
-    name: YS
+    name: 隐藏 IP
+    description: 填 1 隐藏 IP 地址（如 123.123.123.123 显示为 123.123.*.*）；填 0 或留空不隐藏
   WIDGET_STYLE:
     name: 样式（glass 透明 / classic 原版）
     description: glass 透明（默认，根容器不设背景，卡片/磁贴半透明）；classic 原版纯色背景
