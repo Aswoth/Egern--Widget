@@ -8,6 +8,11 @@ scriptings:
     name: shishiyoujia-glass
     script_url: https://raw.githubusercontent.com/Aswoth/Egern--Widget/main/js/shishiyoujia-glass.js
     env_schema:
+      DATA_SOURCE:
+        name: "数据源"
+        description: "sinopec 中石化官方（默认，含涨跌幅和走势图）/ qiyoujiage 汽油价格网 qiyoujiage.com（仅价格）/ youjia 今日油价聚合网 youjia.abapi.cn（仅价格）；下轮调价日与预测始终取汽油价格网"
+        default_value: "sinopec"
+        options: ["sinopec", "qiyoujiage", "youjia"]
       WIDGET_STYLE:
         name: "小组件样式"
         description: "glass 透明（默认）/ classic 原版"

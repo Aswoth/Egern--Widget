@@ -6,13 +6,16 @@
  *   - 小号 (Small)  ：四宫格间距精调版，上下卡片行距增加至 8，极致留白且完美适配不溢出。
  *   - 中号 (Medium) ：1x4 横排卡片布局，标题栏精准上移 4，增大下方内容舒展空间且位置锁定。
  *   - 大号 (Large)  ：沉浸式 2x2 放大四宫格，独享油价历史走势折线图，字号间距完美扩容。
- * • 实时油价精准拉取：直连官方数据接口，支持 92#/95#/98#/柴油多型号及动态涨跌幅展示。
+ * • 实时油价精准拉取：三数据源可选（中石化官方 / 汽油价格网 / 今日油价聚合网），
+ *   支持 92#/95#/98#/柴油多型号及动态涨跌幅展示；中石化含涨跌幅与历史走势图，
+ *   其余两源只有价格（涨跌幅与走势图不显示）。下轮调价日与预测始终取汽油价格网。
  * • 智能调价倒数引擎：下轮调价日从汽油价格网接口实时取（内置 2026 年发改委日历仅作回退），自动计算并渲染本轮调价倒计时。
  *   不足 1 天时自动切换为"Xh Ym后"精确到分钟显示，不再显示"0d"。
  * • 动态视觉预警机制：调价临近（≤3天）自动触发红字高亮预警，涨跌红绿视觉色彩分明。
  * • 临近提醒文案切换：调价前三天，左下角标签自动由"较上次调整"切换为"下轮预测"，
  *   预测涨跌幅从汽油价格网(qiyoujiage.com)按当前省份实时抓取，抓取失败时自动回退为历史涨跌幅显示。
  * * 🔧 【环境变量】
+ * DATA_SOURCE  — 数据源 (默认: sinopec 中石化官方；可选 qiyoujiage 汽油价格网、youjia 今日油价聚合网)
  * PROVINCE     — 省份名称/编码 (默认: 湖南)
  * CITY         — 城市或地区名称 (默认: 长沙)
  * AREA_INDEX   — 多区域特殊索引 (数字，可选)
@@ -24,6 +27,7 @@
 
 const BASE = 'https://cx.sinopecsales.com/yjkqiantai';
 const QYJ_BASE = 'http://m.qiyoujiage.com';
+const YOUJIA_BASE = 'https://youjia.abapi.cn';
 
 const PROVINCES = {
   '11':'北京','12':'天津','13':'河北','14':'山西','41':'河南','37':'山东','31':'上海','32':'江苏','33':'浙江','34':'安徽','35':'福建','36':'江西','42':'湖北','43':'湖南','44':'广东','45':'广西','53':'云南','52':'贵州','46':'海南','50':'重庆','51':'四川','65':'新疆','15':'内蒙古','21':'辽宁','22':'吉林','64':'宁夏','61':'陕西','23':'黑龙江','54':'西藏','63':'青海','62':'甘肃'
@@ -37,6 +41,10 @@ const QYJ_SLUGS = {
   '46':'hainan','50':'chongqing','51':'sichuan','65':'xinjiang','15':'neimenggu','21':'liaoning',
   '22':'jilin','64':'ningxia','61':'shanxi-3','23':'heilongjiang','54':'xizang','63':'qinghai','62':'gansu'
 };
+
+// 省份代码 -> 今日油价聚合网 (youjia.abapi.cn) 的省份拼音 slug；
+// 与汽油价格网相同，唯独陕西：汽油价格网用 shanxi-3，今日油价用 shanxi1
+const YOUJIA_SLUGS = { ...QYJ_SLUGS, '61': 'shanxi1' };
 
 const NAMES = [
   ['GAS_92', '92#'], ['GAS_95', '95#'], ['GAS_98', '98#'],
@@ -164,23 +172,76 @@ async function loadPrediction(ctx, provinceCode) {
   const dm = html.match(/油价(\d{1,2})月(\d{1,2})日24时调整/);
   const nextDate = dm ? { month: parseInt(dm[1], 10), day: parseInt(dm[2], 10) } : null;
 
+  // 同页的四油价格（DATA_SOURCE=qiyoujiage 时直接用，不另发请求）
+  const parsePrice = (label) => {
+    const pm = html.match(new RegExp(label + '[^0-9]{0,30}?([\\d]+\\.[\\d]+)'));
+    return pm ? parseFloat(pm[1]) : null;
+  };
+  const prices = {
+    p92: parsePrice('92号汽油'),
+    p95: parsePrice('95号汽油'),
+    p98: parsePrice('98号汽油'),
+    diesel: parsePrice('0号柴油')
+  };
+  const hasPrices = prices.p92 != null && prices.p95 != null && prices.diesel != null;
+
   // 1. 搁浅或不作调整
   if (/预计(?:油价)?(?:搁浅|不作?调整|停滞)/.test(html)) {
-    return { flat: true, nextDate };
+    return { flat: true, nextDate, ...(hasPrices ? { prices } : {}) };
   }
 
   // 2. 主格式："目前预计上调油价780元/吨(0.59元/升-0.70元/升)" 或 单值 "(0.59元/升)"
   let m = html.match(/预计(上调|下调|上涨|下跌)(?:油价)?[\d.]+元\/吨\((\d+(?:\.\d+)?)元\/升(?:[-~至](\d+(?:\.\d+)?)元\/升)?\)/);
   // 3. 兜底格式："油价上涨0.32元/升-0.38元/升" 或 单值 "0.32元/升"
   if (!m) m = html.match(/(上涨|上调|下调|下跌)(?:油价)?(\d+(?:\.\d+)?)元\/升(?:[-~至](\d+(?:\.\d+)?)元\/升)?/);
-  if (!m) return nextDate ? { nextDate } : null;
+  if (!m) return (nextDate || hasPrices) ? { nextDate, ...(hasPrices ? { prices } : {}) } : null;
 
   const up = m[1] === '上调' || m[1] === '上涨';
   const minV = parseFloat(m[2]);
   const maxV = m[3] ? parseFloat(m[3]) : minV;
-  if (!Number.isFinite(minV)) return nextDate ? { nextDate } : null;
+  if (!Number.isFinite(minV)) return (nextDate || hasPrices) ? { nextDate, ...(hasPrices ? { prices } : {}) } : null;
 
-  return { up, minV, maxV, nextDate };
+  return { up, minV, maxV, nextDate, ...(hasPrices ? { prices } : {}) };
+}
+
+// 今日油价聚合网 (youjia.abapi.cn) 价格：价格卡片结构固定，
+// <div class="price-card-label">92号汽油</div><div class="price-card-value">8.31</div>
+async function loadYoujiaPrices(ctx, provinceCode) {
+  const slug = YOUJIA_SLUGS[provinceCode];
+  if (!slug) return null;
+
+  const resp = await ctx.http.get(`${YOUJIA_BASE}/p/${slug}`, {
+    headers: {
+      'Accept': 'text/html,application/xhtml+xml,*/*',
+      'User-Agent': COMMON_HEADERS['User-Agent']
+    },
+    timeout: 10000
+  });
+  const html = await resp.text();
+  const parseCard = (label) => {
+    const m = html.match(new RegExp('price-card-label">' + label + '</div>\\s*<div class="price-card-value">([\\d]+\\.[\\d]+)</div>'));
+    return m ? parseFloat(m[1]) : null;
+  };
+  return {
+    p92: parseCard('92号汽油'),
+    p95: parseCard('95号汽油'),
+    p98: parseCard('98号汽油'),
+    diesel: parseCard('0号柴油')
+  };
+}
+
+// 纯价格源（汽油价格网 / 今日油价）没有涨跌幅与历史走势：
+// offset 置 null（单卡涨跌自动隐藏）、series 置空（走势图自动隐藏），
+// 趋势行无数据时自动隐藏；调价临近时仍用汽油价格网的预测覆盖。
+function buildPriceOnlyItems(p) {
+  const mk = (rawKey, key, name, price) => price == null ? null
+    : { rawKey, key, name, price, offset: null, series: [], up: false };
+  return {
+    p92:    mk('GAS_92', 'GAS_92', '92#', p.p92),
+    p95:    mk('GAS_95', 'GAS_95', '95#', p.p95),
+    p98:    mk('GAS_98', 'GAS_98', '98#', p.p98),
+    diesel: mk('CHAI_0', 'CHAI_0', '0#',  p.diesel)
+  };
 }
 
 function resolveAreaIndex(current, cityName, explicitIndex) {
@@ -236,6 +297,9 @@ export default async function (ctx) {
     return raw === '' ? null : toNumber(raw, null);
   })();
   const offsetScale = toNumber(getEnv(env, ['OFFSET_SCALE', 'offset_scale'], '1'), 1);
+  // 数据源：sinopec 中石化官方（默认，含涨跌幅与走势图）/
+  // qiyoujiage 汽油价格网（仅价格）/ youjia 今日油价聚合网（仅价格）
+  const dataSource = String(getEnv(env, ['DATA_SOURCE', 'data_source'], 'sinopec') || 'sinopec').trim().toLowerCase();
 
   const family  = (ctx.widgetFamily || 'systemMedium').toLowerCase();
   const isSmall = family.includes('small');
@@ -315,8 +379,8 @@ export default async function (ctx) {
   let hasTrendData = false; 
   let fetchError = null;
 
-  // 缓存（借鉴 IBL3ND）：fetch 前先读缓存，失败时降级用缓存数据
-  const CACHE_KEY = `oil_${provinceCode}_${cityName || 'default'}`;
+  // 缓存（借鉴 IBL3ND）：fetch 前先读缓存，失败时降级用缓存数据；缓存键带数据源，换源不串数据
+  const CACHE_KEY = `oil_${dataSource}_${provinceCode}_${cityName || 'default'}`;
   let hasCache = false;
   try {
     const cached = ctx.storage.getJSON(CACHE_KEY);
@@ -335,39 +399,58 @@ export default async function (ctx) {
   } catch (_) {}
 
   try {
-    const { current, history } = await loadData(ctx, provinceCode);
-    const areaIndex = resolveAreaIndex(current, cityName, explicitArea);
-    const payload = extractItems(current, history, provinceCode, areaIndex, TARGET_FUELS, offsetScale);
+    if (dataSource === 'qiyoujiage') {
+      // 汽油价格网：价格取自前面已抓的同一页（不另发请求），无涨跌幅与历史走势
+      const p = apiPrediction && apiPrediction.prices;
+      if (!p || p.p92 == null) throw new Error('汽油价格网价格未取到');
+      const built = buildPriceOnlyItems(p);
+      items.p92 = built.p92; items.p95 = built.p95; items.p98 = built.p98; items.diesel = built.diesel;
+      prices.p92 = p.p92; prices.p95 = p.p95; prices.p98 = p.p98; prices.diesel = p.diesel;
+      regionName = cityName || PROVINCES[provinceCode] || regionName;
+    } else if (dataSource === 'youjia') {
+      // 今日油价聚合网：单独抓价格页，无涨跌幅与历史走势
+      const p = await loadYoujiaPrices(ctx, provinceCode);
+      if (!p || p.p92 == null) throw new Error('今日油价价格未取到');
+      const built = buildPriceOnlyItems(p);
+      items.p92 = built.p92; items.p95 = built.p95; items.p98 = built.p98; items.diesel = built.diesel;
+      prices.p92 = p.p92; prices.p95 = p.p95; prices.p98 = p.p98; prices.diesel = p.diesel;
+      regionName = cityName || PROVINCES[provinceCode] || regionName;
+    } else {
+      // 中石化官方（默认）：价格 + 涨跌幅 + 历史走势
+      const { current, history } = await loadData(ctx, provinceCode);
+      const areaIndex = resolveAreaIndex(current, cityName, explicitArea);
+      const payload = extractItems(current, history, provinceCode, areaIndex, TARGET_FUELS, offsetScale);
 
-    regionName = cityName || payload.provinceName || regionName;
+      regionName = cityName || payload.provinceName || regionName;
 
-    const found = {};
-    for (const it of payload.items) found[it.rawKey] = it;
-    items.p92    = found.GAS_92 || null;
-    items.p95    = found.GAS_95 || null;
-    items.p98    = found.GAS_98 || found.AIPAO98 || null;
-    items.diesel = found.CHAI_0 || null;
+      const found = {};
+      for (const it of payload.items) found[it.rawKey] = it;
+      items.p92    = found.GAS_92 || null;
+      items.p95    = found.GAS_95 || null;
+      items.p98    = found.GAS_98 || found.AIPAO98 || null;
+      items.diesel = found.CHAI_0 || null;
 
-    prices.p92    = items.p92    && items.p92.price    != null ? Number(items.p92.price)    : null;
-    prices.p95    = items.p95    && items.p95.price    != null ? Number(items.p95.price)    : null;
-    prices.p98    = items.p98    && items.p98.price    != null ? Number(items.p98.price)    : null;
-    prices.diesel = items.diesel && items.diesel.price  != null ? Number(items.diesel.price) : null;
+      prices.p92    = items.p92    && items.p92.price    != null ? Number(items.p92.price)    : null;
+      prices.p95    = items.p95    && items.p95.price    != null ? Number(items.p95.price)    : null;
+      prices.p98    = items.p98    && items.p98.price    != null ? Number(items.p98.price)    : null;
+      prices.diesel = items.diesel && items.diesel.price  != null ? Number(items.diesel.price) : null;
 
-    const offsets = [items.p92, items.p95, items.p98, items.diesel]
-      .filter(Boolean)
-      .map((it) => it.offset)
-      .filter((v) => v !== null && v !== undefined && !isNaN(v) && v !== 0);
+      const offsets = [items.p92, items.p95, items.p98, items.diesel]
+        .filter(Boolean)
+        .map((it) => it.offset)
+        .filter((v) => v !== null && v !== undefined && !isNaN(v) && v !== 0);
 
-    if (offsets.length) {
-      hasTrendData = true; 
-      const sumSign = offsets.reduce((a, b) => a + b, 0);
-      const overallUp = sumSign >= 0;
-      const absVals = offsets.map((v) => Math.abs(v));
-      const minAbs = Math.min(...absVals).toFixed(2);
-      const maxAbs = Math.max(...absVals).toFixed(2);
-      const rangeStr = minAbs === maxAbs ? `${minAbs}¥/L` : `${minAbs}-${maxAbs}¥/L`;
-      trendColor = overallUp ? C.red : C.teal;
-      trendInfo  = `${overallUp ? "↑" : "↓"} ${rangeStr}`;
+      if (offsets.length) {
+        hasTrendData = true; 
+        const sumSign = offsets.reduce((a, b) => a + b, 0);
+        const overallUp = sumSign >= 0;
+        const absVals = offsets.map((v) => Math.abs(v));
+        const minAbs = Math.min(...absVals).toFixed(2);
+        const maxAbs = Math.max(...absVals).toFixed(2);
+        const rangeStr = minAbs === maxAbs ? `${minAbs}¥/L` : `${minAbs}-${maxAbs}¥/L`;
+        trendColor = overallUp ? C.red : C.teal;
+        trendInfo  = `${overallUp ? "↑" : "↓"} ${rangeStr}`;
+      }
     }
 
     // 调价临近（≤3天）：用前面已取到的真实预测覆盖显示，失败或平时均显示“较上次调整”
