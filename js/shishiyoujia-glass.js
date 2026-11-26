@@ -7,7 +7,7 @@
  *   - 中号 (Medium) ：1x4 横排卡片布局，标题栏精准上移 4，增大下方内容舒展空间且位置锁定。
  *   - 大号 (Large)  ：沉浸式 2x2 放大四宫格，独享油价历史走势折线图，字号间距完美扩容。
  * • 实时油价精准拉取：直连官方数据接口，支持 92#/95#/98#/柴油多型号及动态涨跌幅展示。
- * • 智能调价倒数引擎：内置 2026 年发改委法定调价日历，自动计算并渲染本轮调价倒计时。
+ * • 智能调价倒数引擎：下轮调价日从汽油价格网接口实时取（内置 2026 年发改委日历仅作回退），自动计算并渲染本轮调价倒计时。
  *   不足 1 天时自动切换为"Xh Ym后"精确到分钟显示，不再显示"0d"。
  * • 动态视觉预警机制：调价临近（≤3天）自动触发红字高亮预警，涨跌红绿视觉色彩分明。
  * • 临近提醒文案切换：调价前三天，左下角标签自动由"较上次调整"切换为"下轮预测"，
@@ -145,7 +145,8 @@ async function loadData(ctx, province) {
   return { current, history };
 }
 
-// 从汽油价格网 (qiyoujiage.com) 按省份抓取"下轮调价预测"涨跌幅
+// 从汽油价格网 (qiyoujiage.com) 按省份抓取"下轮调价预测"涨跌幅 + 下轮调价日期
+// 日期取自页面里的 "油价11月26日24时调整"（全站统一的下一轮窗口，各省页面一致，页面里唯一一处 M月D日24时）
 async function loadPrediction(ctx, provinceCode) {
   const slug = QYJ_SLUGS[provinceCode];
   if (!slug) return null;
@@ -159,23 +160,27 @@ async function loadPrediction(ctx, provinceCode) {
   });
   const html = await resp.text();
 
+  // 下轮调价日期（和预测涨跌幅同一页，一次请求拿两个数）
+  const dm = html.match(/油价(\d{1,2})月(\d{1,2})日24时调整/);
+  const nextDate = dm ? { month: parseInt(dm[1], 10), day: parseInt(dm[2], 10) } : null;
+
   // 1. 搁浅或不作调整
   if (/预计(?:油价)?(?:搁浅|不作?调整|停滞)/.test(html)) {
-    return { flat: true };
+    return { flat: true, nextDate };
   }
 
   // 2. 主格式："目前预计上调油价780元/吨(0.59元/升-0.70元/升)" 或 单值 "(0.59元/升)"
   let m = html.match(/预计(上调|下调|上涨|下跌)(?:油价)?[\d.]+元\/吨\((\d+(?:\.\d+)?)元\/升(?:[-~至](\d+(?:\.\d+)?)元\/升)?\)/);
   // 3. 兜底格式："油价上涨0.32元/升-0.38元/升" 或 单值 "0.32元/升"
   if (!m) m = html.match(/(上涨|上调|下调|下跌)(?:油价)?(\d+(?:\.\d+)?)元\/升(?:[-~至](\d+(?:\.\d+)?)元\/升)?/);
-  if (!m) return null;
+  if (!m) return nextDate ? { nextDate } : null;
 
   const up = m[1] === '上调' || m[1] === '上涨';
   const minV = parseFloat(m[2]);
   const maxV = m[3] ? parseFloat(m[3]) : minV;
-  if (!Number.isFinite(minV)) return null;
+  if (!Number.isFinite(minV)) return nextDate ? { nextDate } : null;
 
-  return { up, minV, maxV };
+  return { up, minV, maxV, nextDate };
 }
 
 function resolveAreaIndex(current, cityName, explicitIndex) {
@@ -256,17 +261,16 @@ export default async function (ctx) {
     divider: glass ? { light: 'rgba(0,0,0,0.08)', dark: 'rgba(255,255,255,0.16)' } : { light: '#E5E5EA', dark: '#38383A' }
   };
 
-  // 2026年发改委调价窗口（已修正 9.24 调价日）
+  // 2026年发改委调价窗口（已按实际公告核对；仅作接口取不到日期时的回退，
+  // 下轮日期优先从汽油价格网接口实时取，见 loadPrediction）
   const CALENDAR_2026 = [
-    [1,12],[1,23],[2,9],[2,23],[3,9],[3,23],[4,7],[4,21],[5,8],[5,22],
-    [6,5],[6,19],[7,3],[7,17],[7,31],[8,14],[8,28],[9,11],[9,24],
-    [10,14],[10,28],[11,11],[11,25],[12,9],[12,23]
+    [1,6],[1,20],[2,3],[2,24],[3,9],[3,23],[4,7],[4,21],[5,8],[5,21],
+    [6,4],[6,18],[7,3],[7,17],[7,31],[8,14],[8,28],[9,11],[9,24],
+    [10,15],[10,29],[11,12],[11,26],[12,10],[12,24]
   ];
 
-  const getNextAdjust = () => {
-    const next = CALENDAR_2026.find(([m, d]) => new Date(Y, m - 1, d, 23, 59, 59).getTime() > now.getTime());
-    if (!next) return { dateStr: "待更新", countdown: "", isUrgent: false };
-    const targetDate = new Date(Y, next[0] - 1, next[1], 23, 59, 59);
+  // 由目标时间算出 dateStr / countdown / isUrgent
+  const buildNextAdjust = (targetDate) => {
     const totalMinutes = Math.max(0, Math.floor((targetDate.getTime() - now.getTime()) / 60000));
     const days    = Math.floor(totalMinutes / 1440);
     const hours   = Math.floor((totalMinutes % 1440) / 60);
@@ -279,7 +283,28 @@ export default async function (ctx) {
       isUrgent:  totalMinutes < 72 * 60
     };
   };
-  const nextAdjust = getNextAdjust();
+
+  // 下轮调价日优先用接口返回的日期（今年/明年、30 天内有效才认；
+  // 接口页面没来得及更新、日期已过时回退到内置日历，避免跳到明年）
+  const getNextAdjust = (apiDate) => {
+    if (apiDate && apiDate.month && apiDate.day) {
+      for (const y of [Y, Y + 1]) {
+        const t = new Date(y, apiDate.month - 1, apiDate.day, 23, 59, 59);
+        if (t.getTime() > now.getTime() && t.getTime() - now.getTime() < 30 * 86400000) {
+          return buildNextAdjust(t);
+        }
+      }
+    }
+    const next = CALENDAR_2026.find(([m, d]) => new Date(Y, m - 1, d, 23, 59, 59).getTime() > now.getTime());
+    if (!next) return { dateStr: "待更新", countdown: "", isUrgent: false };
+    return buildNextAdjust(new Date(Y, next[0] - 1, next[1], 23, 59, 59));
+  };
+
+  // 下轮调价日期优先从接口实时取（和预测涨跌幅同一页，一次请求拿两个数）；
+  // 取不到时 getNextAdjust 会回退到内置日历
+  let apiPrediction = null;
+  try { apiPrediction = await loadPrediction(ctx, provinceCode); } catch (_) {}
+  const nextAdjust = getNextAdjust(apiPrediction && apiPrediction.nextDate);
 
   const prices = { p92: null, p95: null, p98: null, diesel: null };
   const items  = { p92: null, p95: null, p98: null, diesel: null };
@@ -345,10 +370,10 @@ export default async function (ctx) {
       trendInfo  = `${overallUp ? "↑" : "↓"} ${rangeStr}`;
     }
 
-    // 调价临近（≤3天）：尝试拉取真实预测并覆盖显示，失败或平时均显示“较上次调整”
+    // 调价临近（≤3天）：用前面已取到的真实预测覆盖显示，失败或平时均显示“较上次调整”
     if (nextAdjust.isUrgent) {
       try {
-        const prediction = await loadPrediction(ctx, provinceCode);
+        const prediction = apiPrediction;
         if (prediction) {
           if (prediction.flat) {
             trendLabel = "下轮预测: ";
