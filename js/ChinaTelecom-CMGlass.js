@@ -37,6 +37,28 @@ function _safeN(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// 从接口对象里推出一组自洽的 (total, used, remain)。
+// 电信接口的规律：总量恒等于 已用 + 剩余（用户真实套餐：通用
+// 85.12+117.88=203、定向 24.18+35.82=60，分毫不差）；但 total
+// 字段经常缺失（commonFlow 只给 used/balance），直接取 total 会得 0，
+// 百分比 frac(remain, 0) 就恒为 0%，这就是 2026-11-28 那个 0% bug。
+// 所以总量优先用 used+remain 算出，只有 used/remain 都缺时才退回
+// 接口的 total；remain/used 任一缺失时用总量反推，
+// 保证三者永远自洽，百分比不可能再因 total 缺失归零。
+function _flowTriple(o) {
+  let used = _safeN(o && o.used);
+  let remain = _safeN(o && (o.balance !== undefined ? o.balance : o.remain));
+  let total = _safeN(o && o.total);
+  if (used > 0 || remain > 0) {
+    total = used + remain;
+  } else if (total > 0 && used > 0) {
+    remain = Math.max(0, total - used);
+  } else if (total > 0 && remain > 0) {
+    used = Math.max(0, total - remain);
+  }
+  return { total, used, remain };
+}
+
 function transNumber(str, encode = true) {
   return [...String(str || '')].map((c) => String.fromCharCode((c.charCodeAt(0) + (encode ? 2 : -2)) & 0xffff)).join('');
 }
@@ -228,11 +250,12 @@ function parseImportantData(apiData, opts) {
 
   const common = (apiData && apiData.flowInfo && apiData.flowInfo.commonFlow) || {};
   const total = (apiData && apiData.flowInfo && apiData.flowInfo.totalAmount) || {};
-  const gUsed = _safeN(common.used), gBalance = _safeN(common.balance);
-  // 接口 commonFlow 常不给 total（只给 used/balance），缺了就用 used+balance 补，
-  // 否则通用总量为 0、百分比恒为 0%（与总口径 tTotal 的兜底同款写法）。
-  const gTotal = _safeN(common.total !== undefined ? common.total : (gUsed + gBalance));
-  const tUsed = _safeN(total.used !== undefined ? total.used : apiData.usedFlux), tBalance = _safeN(total.balance), tTotal = _safeN(total.total !== undefined ? total.total : (tUsed + tBalance));
+  // 通用 / 总口径一律用 _flowTriple 推导：总量 = 已用 + 剩余，
+  // 不再直接信任接口的 total 字段（commonFlow 经常不给 total）。
+  const g = _flowTriple(common);
+  const gUsed = g.used, gBalance = g.remain, gTotal = g.total;
+  const t = _flowTriple({ used: total.used !== undefined ? total.used : apiData.usedFlux, balance: total.balance, total: total.total });
+  const tUsed = t.used, tBalance = t.remain, tTotal = t.total;
   const hasCommon = common.used !== undefined || common.balance !== undefined || common.total !== undefined;
   let used, balanceFlow, totalFlow;
   let flowScope = '流量';
@@ -265,9 +288,13 @@ function parseImportantData(apiData, opts) {
   }
 
   const voiceInfo = (apiData && apiData.voiceInfo && apiData.voiceInfo.voiceDataInfo) || {};
-  const vTotal = _safeN(voiceInfo.total !== undefined ? voiceInfo.total : apiData.totalVoice);
-  const vUsed = _safeN(voiceInfo.used !== undefined ? voiceInfo.used : apiData.usedVoice);
-  const vBalance = _safeN(voiceInfo.balance !== undefined ? voiceInfo.balance : (vTotal - vUsed));
+  // 语音同款：总量 = 已用 + 剩余，不再直接信任 total 字段。
+  const v = _flowTriple({
+    used: voiceInfo.used !== undefined ? voiceInfo.used : apiData.usedVoice,
+    balance: voiceInfo.balance,
+    total: voiceInfo.total !== undefined ? voiceInfo.total : apiData.totalVoice,
+  });
+  const vTotal = v.total, vUsed = v.used, vBalance = v.remain;
   const showUsedVoice = opts.showUsedVoice;
   const voice = {
     title: showUsedVoice ? '已用语音' : '剩余语音',
@@ -1130,7 +1157,13 @@ function buildTelecomCMDataSource(ctx, ctDs, fromCache, authFailed) {
   const dUsed = hasGeneral ? Math.max(0, tUsed - gUsed) : 0;
   const dRemain = hasGeneral ? Math.max(0, tRemain - gRemain) : 0;
 
-  const frac = (remain, total) => (total > 0 ? Math.max(0, Math.min(1, remain / total)) : 0);
+  // 百分比 = 剩余 / 总量。安全网：总量缺失（<=0）但剩余 > 0 时，
+  // 绝不能返回 0%（那会把“还有流量”画成空环，正是 2026-11-28 的 bug）；
+  // 此时返回 1（满环），表示数据在、总量未知。
+  const frac = (remain, total) => {
+    if (total > 0) return Math.max(0, Math.min(1, remain / total));
+    return remain > 0 ? 1 : 0;
+  };
 
   // 主卡口径（数字 + 总量 + 剩余占比）
   let main;
