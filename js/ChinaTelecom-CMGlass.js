@@ -228,7 +228,10 @@ function parseImportantData(apiData, opts) {
 
   const common = (apiData && apiData.flowInfo && apiData.flowInfo.commonFlow) || {};
   const total = (apiData && apiData.flowInfo && apiData.flowInfo.totalAmount) || {};
-  const gUsed = _safeN(common.used), gBalance = _safeN(common.balance), gTotal = _safeN(common.total);
+  const gUsed = _safeN(common.used), gBalance = _safeN(common.balance);
+  // 接口 commonFlow 常不给 total（只给 used/balance），缺了就用 used+balance 补，
+  // 否则通用总量为 0、百分比恒为 0%（与总口径 tTotal 的兜底同款写法）。
+  const gTotal = _safeN(common.total !== undefined ? common.total : (gUsed + gBalance));
   const tUsed = _safeN(total.used !== undefined ? total.used : apiData.usedFlux), tBalance = _safeN(total.balance), tTotal = _safeN(total.total !== undefined ? total.total : (tUsed + tBalance));
   const hasCommon = common.used !== undefined || common.balance !== undefined || common.total !== undefined;
   let used, balanceFlow, totalFlow;
